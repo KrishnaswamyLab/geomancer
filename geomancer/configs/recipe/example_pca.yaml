@@ -1,0 +1,13 @@
+# DELETABLE EXAMPLE: replace with the lab's own recipe; no scientific claim.
+name: example_pca
+id: example.embed.pca
+source:
+  kind: none
+  note: "A minimal demonstration, not a published lab workflow."
+question: "Inspect a two-dimensional PCA view of synthetic blobs"
+suits: [clusters]
+steps:
+  - name: pca
+    group: latent
+    params: {n_components: 2}
+    limits: {n_components: [n_samples, n_features]}

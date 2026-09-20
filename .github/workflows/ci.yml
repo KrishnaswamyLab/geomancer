@@ -1,0 +1,64 @@
+name: CI
+
+'on':
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.8'
+          python-version: '3.12'
+      - name: Sync the committed pin
+        run: uv sync --locked --torch-backend=cpu
+      - name: CLI and configuration checks
+        run: |
+          uv run --locked geomancer --version
+          uv run --locked geomancer check
+          uv run --locked geomancer tools check
+      - name: Tests including consumer install and mock record smoke
+        run: uv run --locked pytest -q
+
+  upstream:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.8'
+          python-version: '3.12'
+      - name: Sync the committed base environment
+        run: uv sync --locked --torch-backend=cpu
+      - name: Prove the overlay differs from the pin
+        run: |
+          uv run --locked --torch-backend=cpu --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import tomllib
+          from urllib.parse import urlsplit
+
+          lock = tomllib.loads(Path('uv.lock').read_text())
+          package, = [p for p in lock['package'] if p['name'] == 'manyruns']
+          revision = urlsplit(package['source']['git']).fragment
+          line = subprocess.check_output(['geomancer', '--version'], text=True).strip()
+          print(line)
+          actual = line.rsplit(' · revision ', 1)[1]
+          import re
+          assert re.fullmatch(r'[0-9a-f]{40}', actual), line
+          assert actual != revision, 'upstream lane still runs the locked revision'
+          PY
+      - name: CLI and configuration checks against dev
+        run: |
+          uv run --locked --torch-backend=cpu --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" geomancer --version
+          uv run --locked --torch-backend=cpu --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" geomancer check
+          uv run --locked --torch-backend=cpu --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" geomancer tools check
+      - name: Tests including mock record smoke against dev
+        run: uv run --locked --torch-backend=cpu --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" pytest -q --upstream

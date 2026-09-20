@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "Please cite geomancer and its upstream manyruns foundation."
+type: software
+title: "geomancer: the Krishnaswamy Lab's layer on manyruns"
+version: 0.1.0
+license: MIT
+authors:
+  - name: Krishnaswamy Lab
+repository-code: https://github.com/KrishnaswamyLab/geomancer
+references:
+  - type: software
+    title: manyruns
+    authors:
+      - name: Latent Reasoning Works
+    repository-code: https://github.com/latent-reasoning-works/manyruns
+    version: 0.1.0

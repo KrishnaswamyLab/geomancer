@@ -1,0 +1,10 @@
+# DELETABLE EXAMPLE: a small suite, loaded by name through catalog.load_suite.
+# The CLI keeps the bundled default suite; this file does not shadow default.yaml.
+metrics: [trustworthiness, continuity]
+ranges:
+  trustworthiness:
+    in: [0, 1]
+    why: "Normalised rank penalty; meaningful only at sufficient sample size."
+  continuity:
+    in: [0, 1]
+    why: "Mean neighbourhood overlap, normalised by the neighbourhood size."

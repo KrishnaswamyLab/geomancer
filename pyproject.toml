@@ -1,0 +1,52 @@
+[project]
+name = "geomancer"
+version = "0.1.0"
+description = "The Krishnaswamy Lab's public configuration layer, built on manyruns by Latent Reasoning Works."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11,<3.13"
+authors = [{name = "Krishnaswamy Lab"}]
+dependencies = ["manyruns"]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Repository = "https://github.com/KrishnaswamyLab/geomancer"
+Upstream = "https://github.com/latent-reasoning-works/manyruns"
+
+[project.scripts]
+geomancer = "geomancer.app:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "PyYAML>=6"]
+
+[tool.uv.sources]
+manyruns = { git = "https://github.com/latent-reasoning-works/manyruns", tag = "v0.1.0" }
+
+[tool.uv]
+environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Copied from manyruns v0.1.0's hatch include, with the package name changed.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/geomancer/", "/tests/", "/README.md", "/LICENSE", "/CHANGELOG.md", "/pyproject.toml",
+]
+
+[tool.hatch.build.targets.wheel]
+include = ["/geomancer/"]
+packages = ["geomancer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "source_checkout: requires repository files or the Git index, omitted from sdist",
+    "network: requires a generated uv.lock and network access",
+]
