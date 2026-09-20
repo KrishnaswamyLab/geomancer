@@ -109,7 +109,7 @@ def test_lock_source_agrees(lock):
 
 @pytest.mark.network
 def test_uv_lock_check(lock):
-    subprocess.run(["uv", "lock", "--check", "--torch-backend=cpu"], cwd=ROOT, check=True)
+    subprocess.run(["uv", "lock", "--check"], cwd=ROOT, check=True)
 
 
 @pytest.mark.network

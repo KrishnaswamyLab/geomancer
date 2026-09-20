@@ -3,9 +3,9 @@
 geomancer is the Krishnaswamy Lab's public layer over manyruns by Latent Reasoning
 Works. Use uv and Python 3.11–3.12. It is installed from Git, never published to PyPI.
 
-Start with `uv sync --locked --torch-backend=cpu`, then `uv run --locked pytest -q`.
+Start with `uv sync --locked`, then `uv run --locked pytest -q`.
 The initial offline skeleton deliberately has no `uv.lock`: its owner must first
-run `uv lock --torch-backend=cpu`, validate it, and commit it before CI can pass.
+run `uv lock`, validate it, and commit it before CI can pass.
 Do not replace the git source with a published dependency or commit local overlays.
 
 Give recipes stable dotted `id` values, and resolvable `source` metadata when

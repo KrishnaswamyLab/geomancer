@@ -60,13 +60,23 @@ version formatting and run records arrive upstream in 0.1.1.
 The initial offline skeleton intentionally omits `uv.lock`. On a networked machine:
 
 ```sh
-uv lock --torch-backend=cpu
-uv sync --locked --torch-backend=cpu
+uv lock
+uv lock --check
+uv sync --locked
 uv run --locked geomancer --version
 uv run --locked geomancer check
 uv run --locked geomancer tools check
 uv run --locked pytest -q
 ```
+
+The project declares torch directly on Linux and maps it to an explicit
+[PyTorch CPU index](https://docs.astral.sh/uv/guides/integration/pytorch/).
+Relock after changing this source so `uv sync --locked` installs CPU wheels on
+Linux without downloading unused CUDA dependencies. macOS keeps using PyPI's
+CPU wheels; unrelated packages cannot use the explicit index.
+With uv 0.11.8, `--torch-backend` is accepted by `uv tool install` (as used in
+the isolated consumer test) and `uv pip install`, but not by `uv lock`,
+`uv sync`, or `uv run`.
 
 Commit the resulting `uv.lock`. Tests include the mock record assertions and an
 isolated `uv tool install git+file://...` smoke checking the printed revision

@@ -7,7 +7,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.13"
 authors = [{name = "Krishnaswamy Lab"}]
-dependencies = ["manyruns"]
+dependencies = ["manyruns", "torch; sys_platform == 'linux'"]
 classifiers = [
     "Private :: Do Not Upload",
     "Programming Language :: Python :: 3.11",
@@ -26,6 +26,14 @@ dev = ["pytest>=8", "PyYAML>=6"]
 
 [tool.uv.sources]
 manyruns = { git = "https://github.com/latent-reasoning-works/manyruns", tag = "v0.1.0" }
+# Make the transitive torch dependency CPU-only on Linux in the lock itself.
+# macOS continues to use PyPI's CPU wheels.
+torch = { index = "pytorch-cpu", marker = "sys_platform == 'linux'" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.uv]
 environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]

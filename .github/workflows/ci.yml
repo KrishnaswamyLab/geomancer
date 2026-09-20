@@ -17,7 +17,7 @@ jobs:
           version: '0.11.8'
           python-version: '3.12'
       - name: Sync the committed pin
-        run: uv sync --locked --torch-backend=cpu
+        run: uv sync --locked
       - name: CLI and configuration checks
         run: |
           uv run --locked geomancer --version
@@ -36,10 +36,10 @@ jobs:
           version: '0.11.8'
           python-version: '3.12'
       - name: Sync the committed base environment
-        run: uv sync --locked --torch-backend=cpu
+        run: uv sync --locked
       - name: Prove the overlay differs from the pin
         run: |
-          uv run --locked --torch-backend=cpu --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" python - <<'PY'
+          uv run --locked --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" python - <<'PY'
           from pathlib import Path
           import subprocess
           import tomllib
@@ -57,8 +57,8 @@ jobs:
           PY
       - name: CLI and configuration checks against dev
         run: |
-          uv run --locked --torch-backend=cpu --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" geomancer --version
-          uv run --locked --torch-backend=cpu --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" geomancer check
-          uv run --locked --torch-backend=cpu --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" geomancer tools check
+          uv run --locked --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" geomancer --version
+          uv run --locked --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" geomancer check
+          uv run --locked --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" geomancer tools check
       - name: Tests including mock record smoke against dev
-        run: uv run --locked --torch-backend=cpu --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" pytest -q --upstream
+        run: uv run --locked --with "manyruns @ git+https://github.com/latent-reasoning-works/manyruns@dev" pytest -q --upstream
