@@ -53,7 +53,8 @@ def test_declaration():
     validate_declaration(tomllib.loads((ROOT / "pyproject.toml").read_text()), target_branch())
 
 
-@pytest.mark.parametrize("base,ref,expected", [("main", "feature", "main"),
+@pytest.mark.parametrize("base,ref,expected", [("main", "123/merge", "main"),
+                                              ("", "main", "main"),
                                               ("", "dev", "dev")])
 def test_target_uses_pr_base_before_push_ref(base, ref, expected):
     assert target_branch({"GITHUB_BASE_REF": base, "GITHUB_REF_NAME": ref}) == expected
@@ -129,13 +130,16 @@ def test_exception_sha_is_on_upstream_main(tmp_path):
 @pytest.mark.network
 def test_consumer_git_install_reports_locked_revision(lock, tmp_path):
     revision = locked_revision(lock).fragment
+    # CI checks out a detached HEAD; install the commit under test explicitly.
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"],
+                                     cwd=ROOT, text=True).strip()
     environ = {k: v for k, v in os.environ.items()
                if k not in {"PYTHONPATH", "PYTHONHOME", "VIRTUAL_ENV"}
                and not k.startswith("MANYRUNS_")}
     environ.update(UV_TOOL_DIR=str(tmp_path / "tools"),
                    UV_TOOL_BIN_DIR=str(tmp_path / "bin"))
     subprocess.run(["uv", "tool", "install", "--python", sys.executable,
-                    "--torch-backend=cpu", "git+" + ROOT.as_uri()],
+                    "--torch-backend=cpu", "git+" + ROOT.as_uri() + "@" + commit],
                    cwd=tmp_path, env=environ, check=True)
     script = tmp_path / "bin" / "geomancer"
     output = subprocess.check_output([str(script), "--version"], cwd=tmp_path,
