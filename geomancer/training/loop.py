@@ -135,8 +135,10 @@ def run_loop(session: TrainingSession, step: Optional[str] = None, *,
     row = _row(session, step)
     blocked = [r for r in session.chain()[:session.step_names().index(step)] if r["state"] != "valid"]
     if blocked:
-        write(f"refused: upstream {blocked[0]['step']} is {blocked[0]['state']}; "
-              f"loop over it first: geomancer train loop -s {session.name} {blocked[0]['step']}")
+        up = blocked[0]["step"]
+        write(f"refused: upstream {up} is {blocked[0]['state']}. Run it as declared with "
+              f"`geomancer train continue -s {session.name} --select`, or tune it with "
+              f"`geomancer train loop -s {session.name} {up}`")
         return 1
     session.record("loop_started", step=step, collect=collect)
     if row["selected"] in row["compatible"]:
