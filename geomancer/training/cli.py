@@ -396,6 +396,10 @@ def resolve_data(raw: str, name: str, engine: str, kwargs: Optional[list],
         except ValueError as exc:
             raise TrainingError(str(exc))
         return {**project, "data_folder": str(src), "modality": modality}
+    if "/" in raw or src.suffix in (".h5ad", ".h5", ".loom", ".csv", ".tsv", ".npy", ".npz", ".mtx"):
+        hint = (" Generate the play datasets first: geomancer train make-play-data"
+                if "play" in src.name else "")
+        raise TrainingError(f"data file not found: {raw} (looked in {Path.cwd().name}/).{hint}")
     try:
         ds = catalog.load_dataset(raw)
     except Exception as exc:  # noqa: BLE001 - unknown name or invalid declaration

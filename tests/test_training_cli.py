@@ -77,6 +77,8 @@ def test_cli_refusals(train, engine):
     assert code == 1 and "needs measured time labels" in out.err
     code, out = train("start", "pbmc3k_not_a_dataset", "-s", "x")
     assert code == 1 and "cannot resolve" in out.err
+    code, out = train("start", "data/play/play_separated.h5ad", "-s", "y")
+    assert code == 1 and "data file not found" in out.err and "make-play-data" in out.err
 
 
 def test_cli_feedback_compare_and_loop(train, engine, monkeypatch):
