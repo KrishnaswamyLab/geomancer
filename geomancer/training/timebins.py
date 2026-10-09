@@ -2,7 +2,8 @@
 
 Within each measured timepoint, cells are subclustered on their PHATE coordinates, the
 subclusters are ordered (by default by mean DPT, the reading of "local pseudotime ordering"),
-and each subcluster gets a refined time inside a symmetric window around the measured time.
+and each subcluster gets a refined time inside a symmetric window around the measured time,
+shifted by one constant if needed so no time is negative (recorded as `offset`).
 The window's half-width is half the smaller gap to a neighbouring timepoint, so refined bins
 from adjacent timepoints never overlap and each measured time stays at its window's centre.
 
@@ -76,6 +77,11 @@ def refine(emb: np.ndarray, pseudotime: np.ndarray, time_labels: Any, k: int,
         for rank, c in enumerate(order(members, pseudotime)):
             refined[members[c]] = t + half * (2 * (rank + 0.5) / k_eff - 1)
         per_timepoint[f"{t:g}"] = {"k": k_eff, "sizes": sorted(len(m) for m in members)}
+    # manyruns reads time with an unsigned-number parser (`vocab.parse_timepoints`): ONE
+    # negative label makes it fall back to evenly spaced ranks, erasing the real spacing these
+    # bins exist to keep. MIOFlow rescales time to [0, 1], so a constant shift changes nothing.
+    offset = float(-refined.min()) if refined.min() < 0 else 0.0
+    refined = refined + offset
     sizes = [s for v in per_timepoint.values() for s in v["sizes"]]
     diagnostics = {
         "subcluster_time.timepoints": len(levels),
@@ -83,6 +89,7 @@ def refine(emb: np.ndarray, pseudotime: np.ndarray, time_labels: Any, k: int,
         "subcluster_time.min_cells_per_bin": int(min(sizes)),
         "subcluster_time.max_cells_per_bin": int(max(sizes)),
         "subcluster_time.order": choices.SUBCLUSTER_ORDER,
+        "subcluster_time.offset": round(offset, 6),
         "subcluster_time.per_timepoint": per_timepoint,
     }
     return refined, diagnostics

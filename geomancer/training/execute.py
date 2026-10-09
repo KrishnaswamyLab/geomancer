@@ -175,6 +175,7 @@ def execute_step(job: dict) -> dict:
 
 def _execute_local(job: dict) -> dict:
     """`subcluster_time`: refined bins around real timepoints (see `timebins`)."""
+    import numpy as np
     from manyruns import artifacts
 
     inputs = job.get("inputs") or {}
@@ -189,7 +190,8 @@ def _execute_local(job: dict) -> dict:
                                            int(params["k_per_timepoint"]), int(job["seed"]))
     out_dir = Path(job["out_dir"])
     run_id = uuid.uuid4().hex[:12]
-    labels = refined.astype(str)
+    # Fixed-point, never scientific notation: manyruns' time parser rejects "1e-05".
+    labels = np.char.mod("%.6f", refined)
     path = artifacts.save_array(out_dir, run_id, 0, "subcluster_time", "time_labels", labels)
     plots = []
     plot = _scatter(inputs["emb"], refined, out_dir / "plots" / "subcluster_time.png",

@@ -60,10 +60,12 @@ def test_refined_bins_stay_in_symmetric_non_overlapping_windows():
     refined, diag = timebins.refine(emb, pt, labels, k=3, seed=1)
     windows = {0.0: 0.5, 1.0: 0.5, 3.0: 1.0}  # half of the smaller neighbouring gap
     times = timebins.numeric_times(labels)
+    offset = diag["subcluster_time.offset"]
+    assert offset > 0 and refined.min() >= 0
     for t, half in windows.items():
-        r = refined[times == t]
+        r = refined[times == t] - offset
         assert r.min() > t - half and r.max() < t + half
-        assert np.isclose(np.mean(np.unique(r)), t)  # the measured time is the centre
+        assert np.isclose(np.mean(np.unique(r)), t, atol=1e-5)  # the measured time is the centre
     assert diag["subcluster_time.bins"] == 9 and diag["subcluster_time.timepoints"] == 3
 
 
@@ -88,3 +90,15 @@ def test_refine_handles_small_timepoints_and_refuses_one_timepoint():
     assert list(timebins.numeric_times(["day3", "D12", "0.5"])) == [3.0, 12.0, 0.5]
     with pytest.raises(ValueError, match="cannot read a time"):
         timebins.numeric_times(["early"])
+
+
+def test_refined_bins_keep_their_spacing_through_manyruns_time_parser():
+    """manyruns' parser falls back to ranks on ANY negative or scientific-notation label."""
+    from manyruns import vocab
+
+    emb, pt, labels = _timecourse()
+    refined, _ = timebins.refine(emb, pt, labels, k=3, seed=1)
+    written = np.char.mod("%.6f", refined)       # exactly what subcluster_time saves
+    assert vocab.parse_timepoints(written) is not None
+    expected = (refined - refined.min()) / np.ptp(refined)
+    assert np.allclose(vocab.numeric_time(written), expected, atol=1e-5)
