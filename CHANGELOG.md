@@ -14,6 +14,11 @@
   an optional model tier (`--proposer rules+model`) is consulted only when no rule matches.
   Words, proposals, decisions and resulting iterations are linked in the trace; direct
   edits take an optional "why?". `train compare` shows differences between iterations.
+- Collection: pseudonymous `--expert` ids on every event, `--collect` play-session mode,
+  a tested trace contract (`contract.py`), `train export` bundles, and ground-truth play
+  datasets (`train make-play-data`) with hidden truth scores. Real-compute gate
+  (`pytest -m real`) in CI's pinned lane. Design and review notes in
+  `docs/training-mode.md`.
 - Reviewable choices in `geomancer/training/choices.py`.
 - Direct dependencies on numpy, scikit-learn, scipy and matplotlib; optional
   `geomancer[agents]` extra.

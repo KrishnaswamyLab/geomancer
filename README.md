@@ -114,6 +114,14 @@ diagnostic numbers — never data, plots or paths. In the loop, a direct `k=v` e
 by an optional "why?" (Enter skips); `start --collect` asks after every decision. The words,
 the proposals, the decision and the resulting iteration are linked in the trace.
 
+**Collecting sessions to learn from.** Every event carries the `--expert` id.
+`geomancer train make-play-data` writes ground-truth synthetic count datasets to `data/play/`
+(never committed); their truth scores are recorded but hidden unless `show --truth`.
+`geomancer train export -s NAME [--plots]` writes a portable bundle of the records (no input
+data, no arrays, absolute paths reduced to file names) whose trace format is the contract in
+`geomancer/training/contract.py`. Design, decisions and the lab review list are in
+[docs/training-mode.md](docs/training-mode.md).
+
 Everything lives under `outputs/<session>/training/`: `session.json` (selections, notes,
 derived validity; atomic, with `.bak`), `trace.jsonl` (append-only events, each with the
 expert id), and `iterations/<step>/<NNN>/iteration.json` plus that iteration's arrays and

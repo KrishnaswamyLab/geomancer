@@ -31,8 +31,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from geomancer.training import choices, workflow as wf
-
-SCHEMA_VERSION = 2
+from geomancer.training.contract import SCHEMA_VERSION
 SESSION_FILE = "session.json"
 TRACE_FILE = "trace.jsonl"
 
@@ -753,6 +752,7 @@ class TrainingSession:
             "g": jsonable(result.get("g")), "executed_params": jsonable(result.get("params")),
             "bounded": jsonable(result.get("bounded")), "caveats": result.get("caveats"),
             "diagnostics": jsonable(result.get("diagnostics")),
+            "truth": jsonable(result.get("truth")) or None,
             "model": result.get("model"), "manyruns_run_id": result.get("run_id"),
             "engine_seconds": result.get("seconds"),
         }

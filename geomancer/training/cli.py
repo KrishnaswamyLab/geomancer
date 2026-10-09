@@ -11,6 +11,8 @@
     geomancer train feedback -s NAME STEP N "too blurry" [--accept K|--edit k=v|--reject]
     geomancer train compare -s NAME STEP A B  parameter, diagnostic and result differences
     geomancer train loop -s NAME [STEP]       run, look, give feedback or edit, keep, repeat
+    geomancer train export -s NAME [--plots]  a portable bundle of the records (no data)
+    geomancer train make-play-data            ground-truth synthetic datasets in data/play
     geomancer train trace -s NAME             the append-only interaction trace
     geomancer train list                      training sessions in this directory
 
@@ -87,6 +89,8 @@ def _parser() -> argparse.ArgumentParser:
     sh.add_argument("number", type=int)
     sh.add_argument("--json", action="store_true")
     sh.add_argument("--no-plots", action="store_true")
+    sh.add_argument("--truth", action="store_true",
+                    help="also show ground-truth scores (play datasets; hidden by default)")
 
     n = with_session(sub.add_parser("note", help="attach an expert note to an iteration"))
     n.add_argument("step")
@@ -115,6 +119,14 @@ def _parser() -> argparse.ArgumentParser:
     lp.add_argument("step", nargs="?", help="default: the next step that is not valid")
     lp.add_argument("--collect", action="store_true", help="ask 'why?' after every decision")
     lp.add_argument("--no-plots", action="store_true", help="print plot paths only")
+
+    ex = with_session(sub.add_parser("export", help="portable bundle of the records, no data"))
+    ex.add_argument("--out", default="exports", help="parent directory (default ./exports)")
+    ex.add_argument("--plots", action="store_true", help="include the PNG plots")
+
+    mk = sub.add_parser("make-play-data", help="write ground-truth synthetic play datasets")
+    mk.add_argument("--out", default="data/play")
+    mk.add_argument("--seed", type=int, default=0)
 
     sub.add_parser("list", help="training sessions under ./outputs")
     return p
@@ -267,6 +279,10 @@ def cmd_show(args) -> int:
         print(json.dumps(it, indent=2))
         return 0
     print_iteration(session, it, show_plots=not args.no_plots)
+    if args.truth:
+        truth = (it.get("outputs") or {}).get("truth") or {}
+        print("  truth:   " + (", ".join(f"{k}={v}" for k, v in truth.items())
+                               or "none (not a play dataset)"))
     return 0
 
 
@@ -330,10 +346,30 @@ def cmd_loop(args) -> int:
                          show_plots=not args.no_plots)
 
 
+def cmd_export(args) -> int:
+    from geomancer.training import export
+
+    session = _open(args)
+    dest = export.export(session, args.out, plots=args.plots)
+    print(f"exported {session.name} to {dest} (records only; no input data, no arrays)")
+    return 0
+
+
+def cmd_make_play_data(args) -> int:
+    from geomancer.training import playdata
+
+    for path in playdata.make_pool(args.out, args.seed):
+        print(f"wrote {path}")
+    print("start a blind play session with, e.g.: "
+          f"geomancer train start {args.out}/play_separated.h5ad -s play1 --expert ID --collect")
+    return 0
+
+
 VERBS = {"start": cmd_start, "status": cmd_status, "params": cmd_params, "run": cmd_run,
          "continue": cmd_continue, "select": cmd_select, "show": cmd_show, "note": cmd_note,
          "trace": cmd_trace, "list": cmd_list, "feedback": cmd_feedback,
-         "compare": cmd_compare, "loop": cmd_loop}
+         "compare": cmd_compare, "loop": cmd_loop, "export": cmd_export,
+         "make-play-data": cmd_make_play_data}
 
 
 # ── data resolution (public manyruns APIs only) ─────────────────────────────────────────

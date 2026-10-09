@@ -25,6 +25,8 @@ jobs:
           uv run --locked geomancer tools check
       - name: Tests including consumer install and mock record smoke
         run: uv run --locked pytest -q
+      - name: Training mode real-compute gate (manylatents, scanpy, MIOFlow on CPU)
+        run: uv run --locked pytest -q -m real
 
   upstream:
     runs-on: ubuntu-latest

@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from geomancer.training import diagnostics, timebins
+from geomancer.training import diagnostics, playdata, timebins
 from geomancer.training.workflow import LOCAL, PSEUDOTIME, REAL
 
 OK, ERROR = "ok", "error"
@@ -35,7 +35,8 @@ def load_source(project: dict) -> dict:
     """
     from manyruns import pipeline
 
-    out = {"array": None, "labels": None, "kind": None, "counts": None, "genes": None}
+    out = {"array": None, "labels": None, "kind": None, "counts": None, "genes": None,
+           "truth": None}
     folder = project.get("data_folder")
     if not folder:
         return out
@@ -50,6 +51,9 @@ def load_source(project: dict) -> dict:
         out["array"] = obj.X if is_anndata else pipeline.as_matrix(obj)
         out["labels"], out["kind"] = pipeline.labels_of(obj, time_key=time_key)
         out["counts"], out["genes"] = pipeline.gene_axis(obj)
+        if is_anndata and "true_time" in getattr(obj, "obs", {}):
+            # Play datasets carry their generative progress; scored, never shown by default.
+            out["truth"] = obj.obs["true_time"].to_numpy(dtype=float)
     return out
 
 
@@ -146,6 +150,13 @@ def execute_step(job: dict) -> dict:
             time_labels=session.state.get("labels") if name == "discretize_time" else None,
             g=session.g, knn=(job["step"].get("params") or {}).get("knn"),
             source_time=source["labels"] if source["kind"] == "time" else None)
+    truth = {}
+    if rec.get("outcome") == OK and source["truth"] is not None:
+        name = job["step"]["name"]
+        truth = playdata.truth_scores(
+            name, source["truth"], emb=session.state.get("emb"),
+            pseudotime=session.state.get("pseudotime") if name == "dpt" else None,
+            time_labels=session.state.get("labels") if name in TIME_STEPS else None)
     recomputed = None
     if (rec.get("outcome") == OK and job["step"].get("group") == "prep"
             and session.state.get("X") is not None and session.state.get("X") is not before_x):
@@ -158,7 +169,7 @@ def execute_step(job: dict) -> dict:
         "run_id": session.run_id, "caveats": list(session.ctx.get("caveats") or []),
         "model": ("trained model kept in memory only; not persisted"
                   if session.state.get("model") is not None else None),
-        "diagnostics": found,
+        "diagnostics": found, "truth": truth,
     }
 
 
@@ -189,7 +200,10 @@ def _execute_local(job: dict) -> dict:
             "seconds": None, "artifacts": {"time_labels": path or "not written: save failed"},
             "carried": {"time_labels": path} if path else {}, "recomputed": None,
             "plots": plots, "g": found, "run_id": run_id, "caveats": [], "model": None,
-            "diagnostics": diagnostics.compute("subcluster_time", g=found)}
+            "diagnostics": diagnostics.compute("subcluster_time", g=found),
+            "truth": (playdata.truth_scores("subcluster_time", source["truth"],
+                                            time_labels=refined)
+                      if source["truth"] is not None else {})}
 
 
 def _scatter(emb: Any, colour: Any, path: Path, title: str) -> Optional[str]:
