@@ -10,6 +10,7 @@ from importlib import resources
 import os
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 
 from manyruns import env
@@ -79,6 +80,12 @@ def main(argv: list[str] | None = None) -> int:
     if not env.is_set("CALLER"):
         os.environ["MANYRUNS_CALLER"] = __package__
         os.environ["MANYRUNS_CALLER_VERSION"] = __version__
+    # Training mode is the one verb geomancer owns; everything else is manyruns' CLI.
+    args = sys.argv[1:] if argv is None else list(argv)
+    if args[:1] == ["train"]:
+        from geomancer.training import cli as train_cli
+
+        return train_cli.main(args[1:])
     from manyruns import app
 
     return app.main(argv)

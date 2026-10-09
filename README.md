@@ -55,6 +55,52 @@ outright on 0.1.0. Do not commit environment files.
 name is already set. The wrapper delegates the CLI to manyruns; caller-aware
 version formatting and run records arrive upstream in 0.1.1.
 
+## Training mode
+
+`geomancer train` lets an expert walk the CFlows workflow one step at a time and records
+what they did. It does not fine-tune models or tune hyperparameters automatically.
+
+The workflow is `filter_genes → normalize → transform (log1p) → pca (50) → phate → dpt →
+time → mioflow`, defined in `geomancer/training/workflow.py`. Time is chosen at `start`:
+**real** mode (default when the data has a time axis) subclusters each measured timepoint
+on PHATE and orders the subclusters by DPT, as in the CFlows Methods; **pseudotime** mode
+bins the DPT ordering. Every value the lab is reviewing lives in
+`geomancer/training/choices.py`.
+
+```sh
+geomancer train start synthetic_timecourse -s demo --expert jo   # real time detected
+geomancer train continue -s demo --select        # filter_genes; repeat through dpt
+geomancer train run -s demo phate t=40 knn=10    # a second PHATE iteration; the first is kept
+geomancer train status -s demo                   # iterations, selections, validity
+geomancer train select -s demo phate 2           # downstream of PHATE becomes stale
+geomancer train continue -s demo                 # recomputes dpt only
+geomancer train continue -s demo k_per_timepoint=3 --select   # required in real mode
+```
+
+Rules:
+
+- **Running is not selecting.** `run` and `continue` create one iteration of one step and
+  never run another step. `--select` or `select` chooses what goes forward.
+- **Validity follows provenance.** A selected iteration is valid only when computed from the
+  currently selected upstream iterations (the first step also from unchanged source data).
+  Changing a selection makes dependents stale without running them; reselecting an older
+  iteration makes what was computed from it valid again. `run` refuses stale upstream.
+- **Preprocessing is recomputed, not stored.** Gene filtering, normalization and log1p are
+  replayed from the source when PCA needs them and checked against the hash each one
+  recorded; from PCA on, arrays are stored. A step that does not apply (normalizing data
+  that is not counts) passes through as `not_applicable`, with manyruns' reason recorded.
+- **Parameters** are `key=value`; `geomancer train params -s NAME STEP` lists types, bounds,
+  resolved defaults and their sources. Invalid values are refused before anything runs.
+  Rerunning identical parameters, inputs and seed is allowed and flagged.
+- **Failures** are recorded and never selectable; Ctrl-C and killed processes leave an
+  `interrupted` record; earlier iterations and selections are never changed.
+
+Everything lives under `outputs/<session>/training/`: `session.json` (selections, notes,
+derived validity; atomic, with `.bak`), `trace.jsonl` (append-only events, each with the
+expert id), and `iterations/<step>/<NNN>/iteration.json` plus that iteration's arrays and
+plots. Inspect with `geomancer train status|show|trace -s NAME`. Input data and environment
+variables are never written; a missing or modified artifact is reported as `broken`.
+
 ## Development and provenance
 
 The initial offline skeleton intentionally omits `uv.lock`. On a networked machine:

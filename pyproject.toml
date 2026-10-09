@@ -7,7 +7,16 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11,<3.13"
 authors = [{name = "Krishnaswamy Lab"}]
-dependencies = ["manyruns", "torch; sys_platform == 'linux'"]
+dependencies = [
+    "manyruns",
+    # Imported directly by training mode (subclustering, diagnostics, plots).
+    "numpy",
+    "scikit-learn",
+    "scipy",
+    "matplotlib",
+    "torch; sys_platform == 'linux'",
+]
+
 classifiers = [
     "Private :: Do Not Upload",
     "Programming Language :: Python :: 3.11",
@@ -20,6 +29,10 @@ Upstream = "https://github.com/latent-reasoning-works/manyruns"
 
 [project.scripts]
 geomancer = "geomancer.app:main"
+
+[project.optional-dependencies]
+# Optional model tier for plain-language feedback (`--proposer rules+model`).
+agents = ["manyruns[agents]"]
 
 [dependency-groups]
 dev = ["pytest>=8", "PyYAML>=6"]
@@ -57,4 +70,6 @@ testpaths = ["tests"]
 markers = [
     "source_checkout: requires repository files or the Git index, omitted from sdist",
     "network: requires a generated uv.lock and network access",
+    "real: runs real compute through manylatents (about 2 minutes); run with -m real",
 ]
+addopts = "-m 'not real'"
