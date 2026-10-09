@@ -233,7 +233,8 @@ class TrainingSession:
     @classmethod
     def create(cls, name: str, project: dict, time_mode: str, *, seed: int = 42,
                device: str = "cpu", smoke: bool = False, expert: Optional[str] = None,
-               proposer: str = "rules", source_shape: Optional[list] = None,
+               proposer: str = "rules", collect: bool = False,
+               source_shape: Optional[list] = None,
                base: Path | str = "outputs") -> "TrainingSession":
         root = cls.root_for(name, base)
         if (root / SESSION_FILE).exists() or (root / f"{SESSION_FILE}.bak").exists():
@@ -251,7 +252,7 @@ class TrainingSession:
                                                     "declared_shape")},
             "workflow": flow,
             "defaults": {"seed": int(seed), "device": device, "smoke": bool(smoke),
-                         "proposer": proposer},
+                         "proposer": proposer, "collect": bool(collect)},
             "source": {"fingerprint": fingerprint_source(project), "shape": source_shape},
             "selected": {}, "notes": {},
         }
@@ -341,10 +342,10 @@ class TrainingSession:
         finally:
             path.unlink(missing_ok=True)
 
-    def event(self, kind: str, **fields: Any) -> None:
+    def event(self, event_name: str, /, **fields: Any) -> None:
         """Append one line to the interaction trace. Never rewrites earlier lines."""
         row = {"schema_version": SCHEMA_VERSION, "at": now(),
-               "session_id": self.data["session_id"], "expert": self.expert, "event": kind,
+               "session_id": self.data["session_id"], "expert": self.expert, "event": event_name,
                **jsonable(fields)}
         with open(self.root / TRACE_FILE, "a") as f:
             f.write(json.dumps(row, sort_keys=True) + "\n")
@@ -528,6 +529,36 @@ class TrainingSession:
                 {"at": now(), "text": text, "expert": self.expert})
             self.save()
             self.event("note", iteration=ident, text=text)
+
+    def record_feedback(self, step: str, number: int, text: str, result: Optional[dict] = None,
+                        *, kind: str = "feedback", **extra: Any) -> str:
+        """Record what the researcher said about an iteration, verbatim, and what was proposed.
+
+        `kind` is "feedback" (words that asked for proposals) or "why" (a reason given for a
+        direct edit). Returns the id that links the decision and any resulting iteration."""
+        feedback_id = "fb-" + uuid.uuid4().hex[:12]
+        with self.lock():
+            it = self.iteration(step, number)
+            self.event("feedback", feedback_id=feedback_id, kind=kind, step=step,
+                       iteration=it["iteration_id"], text=text,
+                       params=_resolved_values(it),
+                       diagnostics=(it.get("outputs") or {}).get("diagnostics"),
+                       **(result or {}), **extra)
+        return feedback_id
+
+    def record_decision(self, feedback_id: str, decision: str, *, step: str,
+                        proposal: Optional[dict] = None, overrides: Optional[dict] = None,
+                        iteration: Optional[str] = None) -> None:
+        """accepted | edited | rejected, with the final params and the iteration they made."""
+        with self.lock():
+            self.event("feedback_decision", feedback_id=feedback_id, decision=decision,
+                       step=step, proposal=proposal, overrides=overrides,
+                       resulting_iteration=iteration)
+
+    def record(self, event_name: str, /, **fields: Any) -> None:
+        """Any other interaction event (loop started/ended), under the session lock."""
+        with self.lock():
+            self.event(event_name, **fields)
 
     def next_step(self) -> tuple[Optional[str], list[dict]]:
         chain = self.chain()
@@ -757,6 +788,10 @@ class TrainingSession:
                 write_json_atomic(out_dir / "iteration.json", it)
                 self.event("iteration_finished", iteration=it["iteration_id"],
                            status=INTERRUPTED, error=it["error"], recovered=True)
+
+
+def _resolved_values(it: dict) -> dict:
+    return {k: v.get("value") for k, v in ((it.get("params") or {}).get("resolved") or {}).items()}
 
 
 def _upstream_hint(row: dict) -> str:

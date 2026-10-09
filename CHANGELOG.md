@@ -9,6 +9,11 @@
   selection changes. Real-time mode subclusters measured timepoints (CFlows Methods);
   pseudotime mode bins DPT. State and an append-only trace persist under
   `outputs/<session>/training/` (schema version 2).
+- Plain-language feedback (`train feedback`, `train loop`): a versioned rule table and
+  per-step diagnostics propose parameter changes the researcher accepts, edits or rejects;
+  an optional model tier (`--proposer rules+model`) is consulted only when no rule matches.
+  Words, proposals, decisions and resulting iterations are linked in the trace; direct
+  edits take an optional "why?". `train compare` shows differences between iterations.
 - Reviewable choices in `geomancer/training/choices.py`.
 - Direct dependencies on numpy, scikit-learn, scipy and matplotlib; optional
   `geomancer[agents]` extra.

@@ -78,7 +78,7 @@ RULES_VERSION = "1"
 RULES: tuple[Rule, ...] = (
     Rule("phate-oversmoothed", "phate",
          ("blurry", "blurred", "over-smoothed", "oversmoothed", "too smooth", "washed out",
-          "branches merged", "merged branches", "smeared"),
+          "branches merged", "merged branches", "merged", "merging", "smeared"),
          "t", "mul", 0.67,
          "a shorter diffusion time keeps finer structure"),
     Rule("phate-noisy", "phate",

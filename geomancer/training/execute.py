@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from geomancer.training import timebins
+from geomancer.training import diagnostics, timebins
 from geomancer.training.workflow import LOCAL, PSEUDOTIME, REAL
 
 OK, ERROR = "ok", "error"
@@ -138,6 +138,14 @@ def execute_step(job: dict) -> dict:
         produced["time_labels"] = path or "not written: save failed"
         if path:
             carried["time_labels"] = path
+    found = {}
+    if rec.get("outcome") == OK:
+        name = job["step"]["name"]
+        found = diagnostics.compute(
+            name, emb=session.state.get("emb") if name == "phate" else None,
+            time_labels=session.state.get("labels") if name == "discretize_time" else None,
+            g=session.g, knn=(job["step"].get("params") or {}).get("knn"),
+            source_time=source["labels"] if source["kind"] == "time" else None)
     recomputed = None
     if (rec.get("outcome") == OK and job["step"].get("group") == "prep"
             and session.state.get("X") is not None and session.state.get("X") is not before_x):
@@ -150,7 +158,7 @@ def execute_step(job: dict) -> dict:
         "run_id": session.run_id, "caveats": list(session.ctx.get("caveats") or []),
         "model": ("trained model kept in memory only; not persisted"
                   if session.state.get("model") is not None else None),
-        "source_time": source["labels"] if source["kind"] == "time" else None,
+        "diagnostics": found,
     }
 
 
@@ -166,7 +174,7 @@ def _execute_local(job: dict) -> dict:
     if source["kind"] != "time" or source["labels"] is None:
         return {"outcome": ERROR, "detail": "real-time mode needs measured time labels"}
     params = job["step"]["params"]
-    refined, diagnostics = timebins.refine(inputs["emb"], inputs["pseudotime"], source["labels"],
+    refined, found = timebins.refine(inputs["emb"], inputs["pseudotime"], source["labels"],
                                            int(params["k_per_timepoint"]), int(job["seed"]))
     out_dir = Path(job["out_dir"])
     run_id = uuid.uuid4().hex[:12]
@@ -180,8 +188,8 @@ def _execute_local(job: dict) -> dict:
     return {"outcome": OK, "detail": None, "params": dict(params), "bounded": None,
             "seconds": None, "artifacts": {"time_labels": path or "not written: save failed"},
             "carried": {"time_labels": path} if path else {}, "recomputed": None,
-            "plots": plots, "g": diagnostics, "run_id": run_id, "caveats": [], "model": None,
-            "source_time": source["labels"]}
+            "plots": plots, "g": found, "run_id": run_id, "caveats": [], "model": None,
+            "diagnostics": diagnostics.compute("subcluster_time", g=found)}
 
 
 def _scatter(emb: Any, colour: Any, path: Path, title: str) -> Optional[str]:

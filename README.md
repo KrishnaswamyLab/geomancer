@@ -95,6 +95,25 @@ Rules:
 - **Failures** are recorded and never selectable; Ctrl-C and killed processes leave an
   `interrupted` record; earlier iterations and selections are never changed.
 
+**Plain-language feedback.** Describe what looks wrong and get a proposed change; nothing
+runs until you accept it:
+
+```sh
+geomancer train feedback -s demo phate 1 "branches look merged"            # shows proposals
+geomancer train feedback -s demo phate 1 "branches look merged" --accept 1 # t 15 → 10, runs
+geomancer train compare -s demo phate 1 2     # parameter, diagnostic and result differences
+geomancer train loop -s demo phate            # run, look, type feedback or k=v, keep, done
+```
+
+Proposals come from a versioned rule table in `choices.py` (words + a diagnostic → one
+parameter, one step, clipped to its legal range; at most three, ranked). A rule whose
+diagnostic disagrees is reported, not proposed ("fragmented" on a connected kNN graph). With
+`start --proposer rules+model` (install `geomancer[agents]`, set `ANTHROPIC_API_KEY`), an LLM
+is asked only when no rule matched; it receives the words, parameter names and values, and
+diagnostic numbers — never data, plots or paths. In the loop, a direct `k=v` edit is followed
+by an optional "why?" (Enter skips); `start --collect` asks after every decision. The words,
+the proposals, the decision and the resulting iteration are linked in the trace.
+
 Everything lives under `outputs/<session>/training/`: `session.json` (selections, notes,
 derived validity; atomic, with `.bak`), `trace.jsonl` (append-only events, each with the
 expert id), and `iterations/<step>/<NNN>/iteration.json` plus that iteration's arrays and

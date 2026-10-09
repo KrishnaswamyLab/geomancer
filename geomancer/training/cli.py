@@ -8,6 +8,9 @@
     geomancer train continue -s NAME [k=v …]  run the next step that is not valid
     geomancer train show -s NAME STEP N       one iteration: params, provenance, outputs, plots
     geomancer train note -s NAME STEP N TEXT  attach an optional expert note
+    geomancer train feedback -s NAME STEP N "too blurry" [--accept K|--edit k=v|--reject]
+    geomancer train compare -s NAME STEP A B  parameter, diagnostic and result differences
+    geomancer train loop -s NAME [STEP]       run, look, give feedback or edit, keep, repeat
     geomancer train trace -s NAME             the append-only interaction trace
     geomancer train list                      training sessions in this directory
 
@@ -52,6 +55,11 @@ def _parser() -> argparse.ArgumentParser:
                     help="MIOFlow single-batch plumbing check instead of full training")
     st.add_argument("--data-kwargs", nargs="*", metavar="KEY=VALUE",
                     help="generator settings for engine-generated datasets")
+    st.add_argument("--proposer", choices=("rules", "rules+model"), default="rules",
+                    help="who turns feedback into proposals; rules+model asks an LLM when no rule "
+                         "matches (needs geomancer[agents] and an Anthropic key)")
+    st.add_argument("--collect", action="store_true",
+                    help="play-session mode: the loop asks 'why?' after every decision")
 
     s = with_session(sub.add_parser("status", help="selections, validity and history"))
     s.add_argument("--json", action="store_true")
@@ -87,6 +95,26 @@ def _parser() -> argparse.ArgumentParser:
 
     t = with_session(sub.add_parser("trace", help="print the interaction trace"))
     t.add_argument("--json", action="store_true")
+
+    fb = with_session(sub.add_parser("feedback", help="describe what is wrong; get proposals"))
+    fb.add_argument("step")
+    fb.add_argument("number", type=int)
+    fb.add_argument("text")
+    decide = fb.add_mutually_exclusive_group()
+    decide.add_argument("--accept", type=int, metavar="K", help="run proposal K")
+    decide.add_argument("--edit", nargs="+", metavar="KEY=VALUE", help="run your own change")
+    decide.add_argument("--reject", action="store_true", help="record that none fits")
+    _run_flags(fb)
+
+    cmp_ = with_session(sub.add_parser("compare", help="differences between two iterations"))
+    cmp_.add_argument("step")
+    cmp_.add_argument("a", type=int)
+    cmp_.add_argument("b", type=int)
+
+    lp = with_session(sub.add_parser("loop", help="interactive: run, look, feedback, keep"))
+    lp.add_argument("step", nargs="?", help="default: the next step that is not valid")
+    lp.add_argument("--collect", action="store_true", help="ask 'why?' after every decision")
+    lp.add_argument("--no-plots", action="store_true", help="print plot paths only")
 
     sub.add_parser("list", help="training sessions under ./outputs")
     return p
@@ -135,8 +163,15 @@ def cmd_start(args) -> int:
         mode = args.time
     x = source["array"]
     shape = list(x.shape) if getattr(x, "shape", None) is not None else project.get("declared_shape")
+    if args.proposer == "rules+model":
+        import importlib.util
+
+        if not any(importlib.util.find_spec(m) for m in ("anthropic", "manyagents")):
+            raise TrainingError("--proposer rules+model needs the optional model tier: "
+                                "install geomancer[agents] (and set ANTHROPIC_API_KEY)")
     session = TrainingSession.create(args.session, project, mode, seed=args.seed,
                                      device=args.device, smoke=args.smoke, expert=args.expert,
+                                     proposer=args.proposer, collect=args.collect,
                                      source_shape=shape)
     print(f"started training session {args.session!r} at {session.root}")
     print(f"time mode: {mode}" + (" (measured time found)" if has_time else ""))
@@ -270,9 +305,35 @@ def cmd_list(args) -> int:
     return 0
 
 
+def cmd_feedback(args) -> int:
+    from geomancer.training import loop
+
+    session = _open(args)
+    return loop.feedback_once(session, args.step, args.number, args.text, accept=args.accept,
+                              edit=args.edit, reject=args.reject, select=args.select,
+                              seed=args.seed, note=args.note, show_plots=not args.no_plots)
+
+
+def cmd_compare(args) -> int:
+    from geomancer.training import loop
+
+    session = _open(args)
+    print("\n".join(loop.compare(session, args.step, args.a, args.b)))
+    return 0
+
+
+def cmd_loop(args) -> int:
+    from geomancer.training import loop
+
+    session = _open(args)
+    return loop.run_loop(session, args.step, collect=args.collect or None,
+                         show_plots=not args.no_plots)
+
+
 VERBS = {"start": cmd_start, "status": cmd_status, "params": cmd_params, "run": cmd_run,
          "continue": cmd_continue, "select": cmd_select, "show": cmd_show, "note": cmd_note,
-         "trace": cmd_trace, "list": cmd_list}
+         "trace": cmd_trace, "list": cmd_list, "feedback": cmd_feedback,
+         "compare": cmd_compare, "loop": cmd_loop}
 
 
 # ── data resolution (public manyruns APIs only) ─────────────────────────────────────────

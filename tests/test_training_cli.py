@@ -77,3 +77,30 @@ def test_cli_refusals(train, engine):
     assert code == 1 and "needs measured time labels" in out.err
     code, out = train("start", "pbmc3k_not_a_dataset", "-s", "x")
     assert code == 1 and "cannot resolve" in out.err
+
+
+def test_cli_feedback_compare_and_loop(train, engine, monkeypatch):
+    assert train("start", "synthetic_timecourse", "-s", "fb", "--time", "pseudotime")[0] == 0
+    for _ in range(5):
+        assert train("continue", "-s", "fb", "--select", "--no-plots")[0] == 0
+    code, out = train("feedback", "-s", "fb", "phate", "1", "way too blurry")
+    assert code == 0 and "1. t 15 → 10" in out.out and "--accept 1" in out.out
+    code, out = train("feedback", "-s", "fb", "phate", "1", "way too blurry", "--accept", "1",
+                      "--no-plots")
+    assert code == 0 and "phate#2" in out.out
+    code, out = train("compare", "-s", "fb", "phate", "1", "2")
+    assert "t: 15 → 10" in out.out
+    answers = iter(["knn=9", "", "keep", "done"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+    code, out = train("loop", "-s", "fb", "phate", "--no-plots")
+    assert code == 0 and "kept phate#3" in out.out
+
+
+def test_model_tier_needs_its_extra(train, engine, monkeypatch):
+    import importlib.util
+
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec",
+                        lambda name, *a: None if name in ("anthropic", "manyagents") else real(name, *a))
+    code, out = train("start", "synthetic_timecourse", "-s", "m2", "--proposer", "rules+model")
+    assert code == 1 and "geomancer[agents]" in out.err

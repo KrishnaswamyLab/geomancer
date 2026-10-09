@@ -6,5 +6,8 @@ iteration, choose what goes forward, and record why.
     session.py   iterations, selection, staleness, persistence, trace (no compute)
     execute.py   the one module that computes, through manyruns
     timebins.py  refined time bins around real timepoints
+    diagnostics.py  cheap per-step numbers beside each plot, read by the rules
+    feedback.py  plain-language feedback → proposals (rules, optional model); no side effects
+    loop.py      the interactive loop and the one-shot feedback/compare verbs
     cli.py       `geomancer train …`
 """
