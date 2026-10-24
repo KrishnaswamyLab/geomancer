@@ -7,8 +7,11 @@ from collections import Counter
 from pathlib import Path
 
 # Copied from manyruns v0.1.0 under MIT; upstream notice is retained in LICENSE.
-# Lab-private name hashes may be supplied locally; no private name list ships.
-FORBIDDEN_NAME_HASHES = frozenset()
+# SHA-256 digests of lower-cased forbidden names; never store the names here.
+FORBIDDEN_NAME_HASHES = frozenset({
+    "98b1c9e8888c2fe13853a8ef691b7b2a9cc3257b6923f79eaec10cb762fdb074",
+    "b32cbd7a08dbe442fe0c07ce5d82f609b2e5f94dcf8acdd1917e8f9038b10824",
+})
 
 
 def forbidden_count(text: str, hashes=FORBIDDEN_NAME_HASHES) -> int:

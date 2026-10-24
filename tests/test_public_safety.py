@@ -2,11 +2,12 @@
 from collections import Counter
 import hashlib
 from pathlib import Path
+import re
 import subprocess
 
 import pytest
 
-from public_safety import violations
+from public_safety import FORBIDDEN_NAME_HASHES, violations
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,6 +26,21 @@ def test_tracked_tree_is_public_safe():
     if counts:
         pytest.fail(f'Public-safety violations (category counts only): {dict(counts)}',
                     pytrace=False)
+
+
+def test_forbidden_hashes_hold_two_digests():
+    assert FORBIDDEN_NAME_HASHES == frozenset({
+        "98b1c9e8888c2fe13853a8ef691b7b2a9cc3257b6923f79eaec10cb762fdb074",
+        "b32cbd7a08dbe442fe0c07ce5d82f609b2e5f94dcf8acdd1917e8f9038b10824",
+    })
+
+
+@pytest.mark.source_checkout
+def test_no_stray_digest_is_stored():
+    tests_dir = ROOT / 'tests'
+    assert tests_dir.is_dir(), 'tests folder moved'
+    text = (tests_dir / 'public_safety.py').read_text(encoding='utf-8')
+    assert set(re.findall(r"[0-9a-f]{64}", text)) == FORBIDDEN_NAME_HASHES
 
 
 def test_gate_checks_names_in_paths_and_binary_contents():
