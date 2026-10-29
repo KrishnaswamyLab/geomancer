@@ -186,6 +186,19 @@ the row is version 2. This one is real, with a few empty fields left out: a mode
 A row whose chooser is a model is not training data for that same model. Rows where a model
 proposed and a person judged are the most useful ones to train on.
 
+**The row shape changes in the next manyruns release.** The example above is what the draft
+seat writes today. The released seat keeps the same information in a different shape:
+
+| Today (draft) | Next release |
+|---|---|
+| `"schema_version": 2` | `"schema_version": 1`, with the keys below added |
+| `chooser` on the row | `"human"` when the scientist made the last choice; the driver's chooser when the driver accepted at level `drive` |
+| `rationale` on the row and in `proposed` | inside `proposed.meta` only |
+| `by`, `proposed_by` on each `offered` entry | unchanged |
+| the offer hash `legal_id` | `offer_sha256`; `legal_id` keeps its ledger meaning |
+
+Read rows by these keys, not by `schema_version`.
+
 ## 6. Try it
 
 On the laptop, with Ollama running a local model. Until the pull requests merge, use their
