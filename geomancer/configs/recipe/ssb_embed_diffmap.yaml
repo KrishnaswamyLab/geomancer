@@ -2,12 +2,19 @@
 # in 2 dimensions. The grid's graph runs branch from this run's embedding.
 # n_components is capped by the data, because synthetic samples have 2 to 5 dimensions.
 #
-# KNOWN FAILURE AT THESE DEFAULTS (manylatents 0.1.7 and 0.1.8). manyruns builds the step
-# from the DiffusionMapModule class, whose n_landmark default is 2000, and its inner fit
-# passes n_landmark=2000 to graphtools even when there are fewer points. graphtools then
-# raises "n_landmark (2000) >= n_samples". That is 993 of the 1000 synthetic samples. The
-# manylatents Hydra config (diffusionmap.yaml) has n_landmark: null. Adding
-# `n_landmark: null` here is the fix, and it is a change to the "manylatents defaults" decision.
+# KNOWN FAILURE AT THESE DEFAULTS (manylatents 0.1.7 and 0.1.8): EVERY sample fails.
+# manyruns builds the step from the DiffusionMapModule class, whose n_landmark default is
+# 2000, and it fails in two ways (measured on the driver, 2026-10-29):
+# - 2000 points or fewer: graphtools raises "n_landmark (2000) >= n_samples" (993 of the
+#   1000 synthetic samples, and the real datasets with fewer than 2000 cells);
+# - more than 2000 points: the landmark interpolation raises "ValueError: dimension
+#   mismatch" (graphtools base.py:1228), after about 100 s at 5000 points (the other 7
+#   synthetic samples and every 5000-cell real dataset).
+# So at these params the 6 diffmap actions are not_run on every sample (18,000 of the
+# 72,000 synthetic cells). The manylatents Hydra config (diffusionmap.yaml) has
+# n_landmark: null, and `n_landmark: null` here fixes both modes (sample_00028, 2251
+# points: ok in 17.6 s; SCD-0002, 5000 points: ok in 51.5 s, 3.8 GB). It is a change to
+# the "manylatents defaults" decision, so it waits for that decision.
 name: ssb_embed_diffmap
 id: ssb.embed.diffmap
 source:
