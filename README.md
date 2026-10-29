@@ -14,8 +14,7 @@ geomancer tools check
 geomancer run example_blobs --recipe example_pca --engine mock --project example
 ```
 
-The repository must first be created and pushed by its owner. geomancer is never
-published to PyPI. It pins manyruns from Git at `v0.1.0`, commit
+geomancer is never published to PyPI. It pins manyruns from Git at `v0.1.0`, commit
 `79551f04127fdad75aa396eeebcb27351ebd284b`. Under this version, `--version` reports
 `geomancer <manyruns version> · revision <manyruns commit>`. A mock run proves
 CLI and record plumbing only; its numbers are not scientific results.
@@ -57,7 +56,7 @@ version formatting and run records arrive upstream in 0.1.1.
 
 ## Development and provenance
 
-The initial offline skeleton intentionally omits `uv.lock`. On a networked machine:
+To check the lock and run the suite on a networked machine:
 
 ```sh
 uv lock
@@ -78,10 +77,9 @@ With uv 0.11.8, `--torch-backend` is accepted by `uv tool install` (as used in
 the isolated consumer test) and `uv pip install`, but not by `uv lock`,
 `uv sync`, or `uv run`.
 
-Commit the resulting `uv.lock`. Tests include the mock record assertions and an
+Commit `uv.lock` after any relock. Tests include the mock record assertions and an
 isolated `uv tool install git+file://...` smoke checking the printed revision
-against the lock. Until the lock exists, those checks skip locally and CI fails.
-Do not interpret the offline tests as proof of resolution or consumer installation.
+against the lock.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for local upstream overlays, pin changes,
 and the promotion procedure. The required `pinned` lane tests the locked version;
