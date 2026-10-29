@@ -25,6 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
+from geomancer.learner import provenance
 from geomancer.learner.table import override
 
 config = {
@@ -77,7 +78,11 @@ def load_table(path, state, reward="reward"):
 
     X = np.array([states[s] for s in samples], dtype=float).reshape(len(samples), -1)
     table = {"samples": samples, "actions": actions, "X": X, "R": matrix(read("rewards.jsonl")),
-             "excluded": excluded, "folds": None, "R_fit": None, "split": "random"}
+             "excluded": excluded, "folds": None, "R_fit": None, "split": "random",
+             # What the numbers rest on: every reward row cites its run_id, and the
+             # table's config names the ledgers and the score file by sha256.
+             "provenance": {"rewards_sha256": provenance.sha256_file(path / "rewards.jsonl"),
+                            "table": cfg.get("provenance")}}
     if "outer_folds" in cfg:
         nested = read("rewards_nested.jsonl")
         table["folds"] = [np.array([index[s] for s in f if s in index], dtype=int)
@@ -227,7 +232,8 @@ def main(argv=None):
     (out / "metrics.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     summary = summarize(rows)
     (out / "summary.json").write_text(json.dumps(
-        {"config": cfg, "split": table["split"], "excluded": table["excluded"], "policies": summary},
+        {"config": cfg, "split": table["split"], "excluded": table["excluded"],
+         "table": table["provenance"], "policies": summary},
         indent=2))
     print(f"split: {table['split']}" + (f"; excluded {table['excluded']}" if table["excluded"] else ""))
     for policy, m in summary.items():

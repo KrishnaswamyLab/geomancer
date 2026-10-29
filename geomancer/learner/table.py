@@ -1,61 +1,54 @@
-"""Build the reward table: every action on every sample, once.
+"""Join the grid's run records and score files into the tables train.py reads.
 
-    python -m geomancer.learner.table limit=20 workers=4 out=outputs/tables/smoke
+    python -m geomancer.learner.table grid=outputs/ssb source=synthetic
+    python -m geomancer.learner.table grid=outputs/ssb source=real
 
-Writes ``rewards.jsonl`` (one row per sample x action), ``states.jsonl`` (one
-row per sample, every state vector) and ``config.json`` under ``out``. A failed
-action is a row with reward 0, status "error" and the error, never a gap.
+This computes nothing. drive.py writes one run record per cell into the ledgers
+under ``<grid>/ledgers``; score.py reduces them into ``<grid>/scores/<source>.jsonl``
+by run_id. Here each cell (sample, seed, action) takes its row (score.cells: the
+latest ok and complete row, else the latest), and that row's score by run_id.
 
-    python -m geomancer.learner.table source=real stage=graphs out=outputs/tables/real_v1
-    python -m geomancer.learner.table source=real stage=rewards out=outputs/tables/real_v1
+One table per seed, ``<out>/seed<s>/`` (default ``<grid>/tables/<source>/seed<s>``),
+because train.py reads one reward per (sample, action). The seed changes the
+embeddings only; the state runs once per sample, so every seed's table has the
+same states. Each table has:
 
-The real reward trains a classifier across datasets, so it needs one action's
-graphs on every dataset before any reward exists. The real table is built in two
-stages: ``graphs`` writes ``graphs.jsonl`` (one row per sample x action: the
-payload or the error), ``states.jsonl``, ``labels.json`` and ``config.json``;
-``rewards`` reads them and writes ``rewards.jsonl``. ``stage=all`` runs both.
-``resume=true`` keeps the datasets that stage 1 already wrote.
+- ``rewards.jsonl``: one row per cell, with its ``run_id``, ``status`` and score.
+  A cell that was refused or failed is a row with that status and reward None,
+  never a gap; train.py reads None as reward 0, the reward of an action that gave
+  no graph. ``config.json`` counts the cells by status and lists the superseded
+  rows and the missing cells (no row at all).
+- ``rewards_nested.jsonl`` (real only): for each outer fold k, the rewards of the
+  datasets outside k from classifiers fit without fold k. train.py fits on these.
+- ``states.jsonl``: one row per sample, every state vector, from its ssb_state
+  run (``run_id``); a sample without an ok state run is an error row, which
+  train.py leaves out and lists.
+- ``config.json``: the actions, the reward, the seed, the counts, and the sha256 of
+  every ledger and of the score file read.
 
-Each dataset's real reward comes from a classifier fit on the labels of the other
-folds_v1 folds, so a policy fit on the rewards of some datasets has seen the labels
-of the rest. ``rewards`` therefore also writes ``rewards_nested.jsonl``: for each
-outer fold k, the rewards of the datasets outside k, recomputed with fold k left
-out. train.py fits on those and scores on ``rewards.jsonl`` (see train.load_table).
+A table mixes no geomancer commits: rows from two commits are refused unless
+``allow_mixed_commits=true``. A chosen row without a score row means the scores
+are older than the ledger, and is refused: rerun score.py.
 """
 
 import json
 import sys
-import time
-import traceback
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
-import numpy as np
-
 from geomancer.learner import actions as actions_module
-from geomancer.learner import rewards as rewards_module
+from geomancer.learner import provenance
 from geomancer.learner import state as state_module
 
 config = {
-    "source": "synthetic",
-    "root": None,  # scShapeBench directory; None means ${omics_data:}/scshapebench
-    "limit": None,
-    "actions": "all",  # or comma-separated action names
-    "reward": "synthetic_graph",
-    "workers": 4,
-    "out": "outputs/tables/synthetic",
-    # source=real only
-    "stage": "all",  # graphs, rewards, or all
-    "max_cells": 5000,  # seeded uniform subsample per dataset
-    "n_pcs": 50,
-    "points": "X_pca",  # stored obsm X_pca where it has n_pcs columns, else computed; or "computed"
-    "classifiers": "rf",  # scShapeBench models; the first gives `reward`
-    "resume": False,  # stage 1: keep datasets already in states.jsonl
+    "grid": "outputs/ssb",  # drive.py's out
+    "source": "synthetic",  # synthetic or real
+    "scores": None,  # None means <grid>/scores/<source>.jsonl
+    "out": None,  # None means <grid>/tables/<source>
+    "allow_mixed_commits": False,
 }
 
-SEED = 0
-HVG = 2000
+# Score fields that are bookkeeping, not results; the rest go into the reward row.
+BOOKKEEPING = ("reward_kind", "outer_fold", "graph_sha256", "truth_sha256")
 
 
 def override(config, argv):
@@ -72,303 +65,113 @@ def override(config, argv):
     return config
 
 
-def score_sample(sample, actions, reward):
-    """One row per action for one sample."""
-    rows = []
-    for name, fn in actions.items():
-        try:
-            score = reward(fn(sample["points"]), sample)
-            rows.append({"sample": sample["id"], "action": name, "status": "ok", **score})
-        except Exception as exc:
-            rows.append({"sample": sample["id"], "action": name, "reward": 0.0,
-                         "status": "error", "error": f"{type(exc).__name__}: {exc}"})
-    return rows
+def _reward_row(score_row):
+    row = {k: v for k, v in score_row.items() if k not in BOOKKEEPING}
+    return {"sample": row.pop("sample"), "action": row.pop("action"), "seed": row.pop("seed"), **row}
 
 
-def sample_states(sample):
-    return {"sample": sample["id"],
-            **{name: fn(sample["points"]).tolist() for name, fn in state_module.STATES.items()}}
+def state_row(row):
+    """One states.jsonl row from an ssb_state run: every vector, rebuilt from its scalars."""
+    from geomancer.learner import score
 
-
-def _work(job):
-    sample, names, reward_name = job
-    chosen = {n: actions_module.ACTIONS[n] for n in names}
-    try:
-        return score_sample(sample, chosen, rewards_module.REWARDS[reward_name]), sample_states(sample)
-    except Exception:
-        traceback.print_exc()
-        raise
-
-
-def build_table(samples, actions, reward, out, workers=1):
-    """Score every action on every sample; write rewards, states and config to ``out``."""
-    out = Path(out)
-    out.mkdir(parents=True, exist_ok=True)
-    reward_name = next(k for k, v in rewards_module.REWARDS.items() if v is reward)
-    names = list(actions)
-    (out / "config.json").write_text(json.dumps({"actions": names, "reward": reward_name}, indent=2))
-    jobs = ((sample, names, reward_name) for sample in samples)
-    started = time.time()
-    with open(out / "rewards.jsonl", "w") as rewards_file, open(out / "states.jsonl", "w") as states_file:
-        results = map(_work, jobs) if workers == 1 else ProcessPoolExecutor(workers).map(_work, jobs)
-        for done, (rows, states) in enumerate(results, 1):
-            rewards_file.writelines(json.dumps(row) + "\n" for row in rows)
-            states_file.write(json.dumps(states) + "\n")
-            errors = sum(row["status"] == "error" for row in rows)
-            print(f"[{done}] sample={states['sample']} errors={errors} "
-                  f"elapsed={time.time() - started:.0f}s", flush=True)
+    g, vec = score.geo(row), row.get("g_vector") or {}
+    names = {row.get("dataset_name"), g.get("sample"), vec.get("ssb_state.sample")}
+    if not score.finished(row):
+        return {"sample": g.get("sample"), "run_id": row["run_id"],
+                "error": f"state run {g.get('status') or 'failed'}: {g.get('detail')}"}
+    if len(names) != 1:
+        return {"sample": g.get("sample"), "run_id": row["run_id"],
+                "error": f"the state run's sample names disagree: {sorted(map(str, names))}"}
+    out = {"sample": g["sample"], "run_id": row["run_id"]}
+    for name in state_module.STATES:
+        dim = vec[f"ssb_state.{name}_dim"]
+        out[name] = [vec[f"ssb_state.{name}_{i}"] for i in range(dim)]
     return out
 
 
-def _loader():
-    try:
-        from manylatents.singlecell.data import scshapebench
-    except ImportError as exc:
-        raise SystemExit(
-            "the scShapeBench loader is in manylatents-omics after 0.1.3 "
-            "(latent-reasoning-works/manylatents-omics#74); install that branch") from exc
-    return scshapebench
+def _order(names):
+    known = list(actions_module.ACTIONS)
+    return sorted(names, key=lambda a: (known.index(a) if a in known else len(known), a))
 
 
-def load_samples(source, root=None, limit=None):
-    """Samples as ``{"id", "points", "graph", "meta"}`` from the manylatents-omics loader."""
-    if source != "synthetic":
-        raise ValueError(f"unknown source {source!r}; load_samples reads 'synthetic' only")
-    scshapebench = _loader()
-    ids = scshapebench.list_synthetic(root=root)[:limit]
-    for sample_id in ids:
-        sample = scshapebench.load_synthetic(sample_id, root=root)
-        yield {"id": sample_id, "points": sample["points"], "graph": sample["graph"],
-               "meta": sample["meta"]}
+def build(grid, source, scores=None, out=None, allow_mixed_commits=False):
+    """Write one table per seed; returns their directories, sorted by seed."""
+    from geomancer.learner import score
 
-
-def real_points(path, max_cells, n_pcs, points="X_pca", seed=SEED):
-    """One h5ad's cells, uniformly subsampled with a fixed seed, as principal components.
-
-    The stored obsm X_pca is used when it has ``n_pcs`` columns. Otherwise (no
-    X_pca, too few PCs, or points="computed") PCA is fit on the subsample: X is
-    normalised and log1p'd if it holds integer counts, then cut to the most
-    variable genes. Returns the points and how they were made.
-    """
-    import anndata as ad
-
-    adata = ad.read_h5ad(path, backed="r")
-    try:
-        n = adata.n_obs
-        idx = np.sort(np.random.default_rng(seed).choice(n, min(n, max_cells), replace=False))
-        stored = adata.obsm.get("X_pca") if points == "X_pca" else None
-        if stored is not None and stored.shape[1] >= n_pcs:
-            # X is not read here, so whether it holds counts is not known.
-            return (np.asarray(stored[idx, :n_pcs], dtype=float),
-                    {"n_cells": n, "n_points": len(idx), "points_source": "X_pca", "counts": None})
-        X = adata[idx].to_memory().X
-    finally:
-        adata.file.close()
-    return _computed_pca(X, n_pcs, seed), {"n_cells": n, "n_points": len(idx),
-                                           "points_source": "computed", "counts": _is_counts(X)}
-
-
-def _is_counts(X):
-    import scipy.sparse as sp
-
-    values = X.data if sp.issparse(X) else np.asarray(X).ravel()
-    values = values[:10_000]
-    return bool(values.size) and bool(np.all(values == np.round(values)))
-
-
-def _computed_pca(X, n_pcs, seed):
-    import anndata as ad
-    import scanpy as sc
-    from sklearn.decomposition import PCA
-
-    adata = ad.AnnData(X.astype(np.float32))
-    if _is_counts(X):
-        sc.pp.normalize_total(adata)
-        sc.pp.log1p(adata)
-    if adata.n_vars > HVG:
-        sc.pp.highly_variable_genes(adata, n_top_genes=HVG)
-        adata = adata[:, adata.var["highly_variable"]]
-    dense = adata.X.toarray() if hasattr(adata.X, "toarray") else np.asarray(adata.X)
-    return PCA(n_components=min(n_pcs, *dense.shape), random_state=seed).fit_transform(dense)
-
-
-def real_jobs(root=None, limit=None):
-    """``(dataset_id, h5ad path)`` for the high_support datasets present locally, and their labels."""
-    loader = _loader()
-    labels = loader.load_shape_labels("high_support", root=root)
-    ids = sorted(set(loader.list_real(root=root)) & set(labels))[:limit]
-    return [(d, str(loader.real_path(d, root=root))) for d in ids], {d: labels[d] for d in ids}
-
-
-def graph_rows(sample_id, points, actions):
-    """One row per action: the payload, or the error."""
-    rows = []
-    for name, fn in actions.items():
-        try:
-            rows.append({"sample": sample_id, "action": name, "status": "ok", "payload": fn(points)})
-        except Exception as exc:
-            rows.append({"sample": sample_id, "action": name, "status": "error",
-                         "error": f"{type(exc).__name__}: {exc}"})
-    return rows
-
-
-def _graph_work(job):
-    sample_id, path, names, max_cells, n_pcs, points_kind = job
-    try:
-        points, meta = real_points(path, max_cells, n_pcs, points_kind)
-        states = {**sample_states({"id": sample_id, "points": points}), "meta": meta}
-    except Exception as exc:
-        # The dataset itself failed (unreadable file, PCA, states): every action is an error.
-        traceback.print_exc()
-        error = f"{type(exc).__name__}: {exc}"
-        return ([{"sample": sample_id, "action": n, "status": "error", "error": error} for n in names],
-                {"sample": sample_id, "error": error})
-    chosen = {n: actions_module.ACTIONS[n] for n in names}
-    return graph_rows(sample_id, points, chosen), states
-
-
-def _graph_results(work, workers):
-    """``_graph_work`` on each job, yielded as they finish; a dead worker loses only its own jobs."""
-    if workers == 1:
-        yield from map(_graph_work, work)
-        return
-    lost = []
-    with ProcessPoolExecutor(workers) as pool:
-        futures = {pool.submit(_graph_work, job): job[0] for job in work}
-        for future in as_completed(futures):
-            try:
-                result = future.result()
-            except BrokenProcessPool:
-                lost.append(futures[future])
-                continue
-            yield result
-    if lost:
-        raise BrokenProcessPool(
-            f"a worker died (out of memory?); {len(lost)} datasets have no rows: {sorted(lost)[:10]}. "
-            "The rows written are kept; rerun with resume=true.")
-
-
-def _read_jsonl(path):
-    # A run killed while writing can leave a partial last line; it is dropped.
-    rows = []
-    for line in path.read_text().splitlines():
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            pass
-    return rows
-
-
-def _resume(out, run_config):
-    """The datasets a previous stage 1 finished; the files are cut back to exactly those."""
-    old = json.loads((out / "config.json").read_text())
-    if changed := sorted(k for k in run_config if old.get(k) != run_config[k]):
-        raise ValueError(f"cannot resume {out}: {changed} differ from the run that wrote it")
-    states = _read_jsonl(out / "states.jsonl")
-    # A dataset is done when its states row is written, after its graph rows; failed
-    # datasets are tried again.
-    done = {s["sample"] for s in states if "error" not in s}
-    graphs = [g for g in _read_jsonl(out / "graphs.jsonl") if g["sample"] in done]
-    (out / "graphs.jsonl").write_text("".join(json.dumps(g) + "\n" for g in graphs))
-    (out / "states.jsonl").write_text("".join(json.dumps(s) + "\n" for s in states if s["sample"] in done))
-    return done
-
-
-def build_real_graphs(jobs, labels, actions, out, max_cells, n_pcs, points="X_pca", workers=1,
-                      resume=False):
-    """Stage 1: every action's graph on every dataset, plus states, labels and config."""
-    out = Path(out)
-    out.mkdir(parents=True, exist_ok=True)
-    names = list(actions)
-    run_config = {"actions": names, "source": "real", "max_cells": max_cells, "n_pcs": n_pcs,
-                  "points": points, "seed": SEED}
-    resume = resume and (out / "states.jsonl").exists()
-    done = _resume(out, run_config) if resume else set()
-    (out / "config.json").write_text(json.dumps(run_config, indent=2))
-    (out / "labels.json").write_text(json.dumps(labels, indent=2))
-    work = [(d, path, names, max_cells, n_pcs, points) for d, path in jobs if d not in done]
-    if done:
-        print(f"resuming: {len(done)} datasets done, {len(work)} to go", flush=True)
-    started = time.time()
-    mode = "a" if resume else "w"
-    with open(out / "graphs.jsonl", mode) as graphs_file, open(out / "states.jsonl", mode) as states_file:
-        for n, (rows, states) in enumerate(_graph_results(work, workers), 1):
-            graphs_file.writelines(json.dumps(row) + "\n" for row in rows)
-            graphs_file.flush()
-            states_file.write(json.dumps(states) + "\n")
-            states_file.flush()
-            errors = sum(row["status"] == "error" for row in rows)
-            source = states["meta"]["points_source"] if "meta" in states else "failed"
-            print(f"[{n}/{len(work)}] sample={states['sample']} errors={errors} "
-                  f"points={source} elapsed={time.time() - started:.0f}s", flush=True)
-    return out
-
-
-def build_real_rewards(out, classifiers="rf", folds=None):
-    """Stage 2: rewards.jsonl and rewards_nested.jsonl from graphs.jsonl, per action.
-
-    ``rewards.jsonl`` is out of fold on ``folds`` (default folds_v1). For each fold
-    k, ``rewards_nested.jsonl`` holds the rewards of the datasets outside k, from
-    classifiers fit without fold k (its other folds are the inner folds).
-    """
-    out = Path(out)
-    cfg = json.loads((out / "config.json").read_text())
-    labels = json.loads((out / "labels.json").read_text())
-    folds = rewards_module.folds_v1() if folds is None else folds
-    by_action = {name: {} for name in cfg["actions"]}
-    for row in _read_jsonl(out / "graphs.jsonl"):
-        by_action[row["action"]][row["sample"]] = row
-    samples = {s for rows in by_action.values() for s in rows}
-    models = classifiers.split(",") if isinstance(classifiers, str) else list(classifiers)
-    started = time.time()
-    with open(out / "rewards.jsonl", "w") as rewards_file, \
-            open(out / "rewards_nested.jsonl", "w") as nested_file:
-        for done, (name, rows) in enumerate(by_action.items(), 1):
-            payloads = {s: r.get("payload") if r["status"] == "ok" else None for s, r in rows.items()}
-            scored = rewards_module.real_label(payloads, labels, models=models, folds=folds)
-            for sample_id, row in rows.items():
-                score = scored[sample_id]
-                if row["status"] == "error":
-                    score = {**score, "error": row["error"]}
-                rewards_file.write(json.dumps({"sample": sample_id, "action": name, **score}) + "\n")
-            for k, outer in enumerate(folds):
-                held_out = set(outer["test"])
-                inner = rewards_module.real_label(
-                    {s: p for s, p in payloads.items() if s not in held_out}, labels, models=models,
-                    folds=[f for j, f in enumerate(folds) if j != k])
-                nested_file.writelines(
-                    json.dumps({"sample": s, "action": name, "outer_fold": k, **score}) + "\n"
-                    for s, score in inner.items())
-            mean = np.mean([scored[s]["reward"] for s in rows]) if rows else float("nan")
-            print(f"[{done}/{len(by_action)}] action={name} mean_reward={mean:.3f} "
-                  f"elapsed={time.time() - started:.0f}s", flush=True)
-    outer_folds = [[s for s in f["test"] if s in samples] for f in folds]
-    (out / "config.json").write_text(json.dumps(
-        {**cfg, "reward": "real_label", "classifiers": models, "outer_folds": outer_folds}, indent=2))
-    return out
+    grid = Path(grid)
+    scores = Path(scores) if scores else grid / "scores" / f"{source}.jsonl"
+    out = Path(out) if out else grid / "tables" / source
+    rows = [r for r in score.read_ledgers(grid) if score.geo(r).get("source") == source]
+    graph_rows = [r for r in rows if score.geo(r).get("kind") == "graph"]
+    chosen, superseded = score.cells(graph_rows)
+    score_rows = [json.loads(line) for line in scores.read_text().splitlines()]
+    top = {s["run_id"]: s for s in score_rows if s.get("outer_fold") is None}
+    if missing := sorted(r["run_id"] for r in chosen.values() if r["run_id"] not in top):
+        raise ValueError(f"{len(missing)} rows have no score in {scores} (first {missing[:5]}); "
+                         "the scores are older than the ledger: rerun score.py")
+    commits = sorted({str((score.geo(r).get("geomancer_revision") or {}).get("commit"))
+                      for r in chosen.values()})
+    if len(commits) > 1 and not allow_mixed_commits:
+        raise ValueError(f"the rows come from {len(commits)} geomancer commits {commits}; "
+                         "run the grid from one commit, or pass allow_mixed_commits=true")
+    states, _ = score.cells([r for r in rows if score.geo(r).get("kind") == "state"])
+    state_by_sample = {sample: row for (sample, _, _), row in states.items()}
+    meta = json.loads(scores.with_suffix(".json").read_text())
+    provenance_block = {
+        "ledgers": score.ledger_hashes(grid),
+        "scores": {"path": str(scores), "sha256": provenance.sha256_file(scores),
+                   "manifest_sha256": provenance.sha256_file(scores.with_suffix(".json"))},
+        "geomancer_commits": commits,
+        "manyruns_revisions": sorted({json.dumps(score.geo(r).get("manyruns_revision"), sort_keys=True)
+                                      for r in chosen.values()}),
+    }
+    names = _order({a for (_, _, a) in chosen})
+    samples = sorted({s for (s, _, _) in chosen})
+    written = []
+    graph_by_id = {r["run_id"]: r for r in graph_rows}
+    for seed in sorted({seed for (_, seed, _) in chosen}):
+        folder = out / f"seed{seed}"
+        folder.mkdir(parents=True, exist_ok=True)
+        mine = {k: r for k, r in chosen.items() if k[1] == seed}
+        reward_rows = [_reward_row(top[mine[(s, seed, a)]["run_id"]])
+                       for s in samples for a in names if (s, seed, a) in mine]
+        counts = {}
+        for r in reward_rows:
+            counts[r["status"]] = counts.get(r["status"], 0) + 1
+        (folder / "rewards.jsonl").write_text("".join(json.dumps(r) + "\n" for r in reward_rows))
+        state_rows = [state_row(state_by_sample[s]) if s in state_by_sample
+                      else {"sample": s, "run_id": None, "error": "no ok state run"} for s in samples]
+        (folder / "states.jsonl").write_text("".join(json.dumps(r) + "\n" for r in state_rows))
+        superseded_here = sorted(i for i in superseded if score.cell_key(graph_by_id[i])[1] == seed)
+        table_cfg = {
+            "source": source, "seed": seed, "actions": names, "reward": meta["reward"],
+            "counts": counts, "n_cells": len(reward_rows),
+            "missing": [[s, a] for s in samples for a in names if (s, seed, a) not in mine],
+            "superseded": superseded_here,
+            "states_excluded": [r["sample"] for r in state_rows if "error" in r],
+            "provenance": provenance_block,
+        }
+        if source == "real":
+            nested = [_reward_row(s) | {"outer_fold": s["outer_fold"]} for s in score_rows
+                      if s.get("outer_fold") is not None and s.get("seed") == seed
+                      and s["status"] != "superseded"]
+            (folder / "rewards_nested.jsonl").write_text("".join(json.dumps(r) + "\n" for r in nested))
+            table_cfg.update(classifiers=meta.get("classifiers"), outer_folds=meta["outer_folds"])
+        (folder / "config.json").write_text(json.dumps(table_cfg, indent=2))
+        print(f"seed {seed}: {len(samples)} samples x {len(names)} actions, cells {counts}, "
+              f"{len(table_cfg['missing'])} missing, {len(superseded_here)} superseded -> {folder}",
+              flush=True)
+        written.append(folder)
+    return written
 
 
 def main(argv=None):
     cfg = override(config, sys.argv[1:] if argv is None else argv)
-    names = (list(actions_module.ACTIONS) if cfg["actions"] == "all"
-             else cfg["actions"].split(","))
-    chosen = {n: actions_module.ACTIONS[n] for n in names}
-    if cfg["source"] == "real":
-        if cfg["stage"] not in ("graphs", "rewards", "all"):
-            raise ValueError(f"unknown stage {cfg['stage']!r}; expected graphs, rewards or all")
-        out = Path(cfg["out"])
-        if cfg["stage"] in ("graphs", "all"):
-            jobs, labels = real_jobs(cfg["root"], cfg["limit"])
-            build_real_graphs(jobs, labels, chosen, out, cfg["max_cells"], cfg["n_pcs"],
-                              cfg["points"], cfg["workers"], cfg["resume"])
-        if cfg["stage"] in ("rewards", "all"):
-            build_real_rewards(out, cfg["classifiers"])
-    else:
-        out = build_table(load_samples(cfg["source"], cfg["root"], cfg["limit"]), chosen,
-                          rewards_module.REWARDS[cfg["reward"]], cfg["out"], cfg["workers"])
-    run_file = f"run_{cfg['stage']}.json" if cfg["source"] == "real" else "run.json"
-    (out / run_file).write_text(json.dumps(cfg, indent=2))
-    print(f"wrote {out}")
+    if cfg["source"] not in ("synthetic", "real"):
+        raise ValueError(f"unknown source {cfg['source']!r}; expected synthetic or real")
+    for folder in build(cfg["grid"], cfg["source"], cfg["scores"], cfg["out"], cfg["allow_mixed_commits"]):
+        (folder / "run.json").write_text(json.dumps(cfg, indent=2))
+    print(f"wrote {cfg['out'] or Path(cfg['grid']) / 'tables' / cfg['source']}")
 
 
 if __name__ == "__main__":

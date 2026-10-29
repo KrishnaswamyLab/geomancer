@@ -114,7 +114,7 @@ def test_real_points_are_one_computed_pca_on_a_seeded_subsample(tmp_path, monkey
 
 
 def test_the_subsample_is_the_one_the_old_real_table_drew(tmp_path):
-    # Same seed and draw as table.real_points, so the cells match the earlier real table.
+    # Same seed and draw as the earlier out-of-band real table, so the cells match it.
     import anndata as ad
 
     loader = _real_root(tmp_path / "root")

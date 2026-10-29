@@ -52,30 +52,6 @@ def test_state_vectors_have_fixed_length():
     assert state.STATES["none"](points).size == 0
 
 
-def test_failed_action_is_a_zero_reward_row_with_its_error(monkeypatch):
-    def broken(points):
-        raise RuntimeError("boom")
-
-    rows = table.score_sample(_circle(), {"broken": broken}, rewards.synthetic_graph)
-
-    assert rows == [{"sample": 0, "action": "broken", "reward": 0.0, "status": "error",
-                     "error": "RuntimeError: boom"}]
-
-
-def test_build_table_writes_rewards_and_states(tmp_path):
-    names = ["raw+paga@default", "raw+mapper@default"]
-    chosen = {n: actions.ACTIONS[n] for n in names}
-
-    table.build_table([_circle()], chosen, rewards.synthetic_graph, tmp_path, workers=1)
-
-    rows = [json.loads(line) for line in (tmp_path / "rewards.jsonl").read_text().splitlines()]
-    assert sorted(r["action"] for r in rows) == sorted(names)
-    assert all(0.0 <= r["reward"] <= 1.0 for r in rows)
-    states = json.loads((tmp_path / "states.jsonl").read_text().splitlines()[0])
-    assert set(states) == {"sample", *state.STATES}
-    assert json.loads((tmp_path / "config.json").read_text())["actions"] == names
-
-
 def test_overrides_parse_like_nanogpt():
     config = {"limit": None, "workers": 4, "out": "x"}
 

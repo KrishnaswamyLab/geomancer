@@ -148,7 +148,8 @@ def computed_pca(X, n_pcs, seed=SEED):
 def real_points(path, max_cells, n_pcs, seed=SEED):
     """One h5ad's seeded uniform subsample of cells, as ``computed_pca`` components.
 
-    The draw is the one table.real_points made, so the cells are the same.
+    The draw is the one the earlier out-of-band real table made (seed 0, sorted indices),
+    so the cells are the same.
     """
     import anndata as ad
 
