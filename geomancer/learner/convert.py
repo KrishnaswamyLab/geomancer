@@ -12,13 +12,17 @@ Synthetic: ``<sample>.npy`` is the ``noisy_points`` of ``sample_XXXXX.npz``
 unchanged. The manifest has the sha256 of the ``.npz`` (which also holds the
 truth graph that score.py reads), the ``.json`` meta and the ``.npy``.
 
-Real: the high_support datasets that are present. Each is a seeded uniform
+Real: every dataset of the high_support label set. One that is not on disk is an
+entry with status "absent". Each present one is a seeded uniform
 subsample of at most ``max_cells`` cells, then ONE PCA method for every dataset
 (a stored ``obsm["X_pca"]`` is never used; 16 of the 79 have none). The manifest
 has the sha256 of the source h5ad and of the ``.npy``, the params, and n_obs.
 
-Both manifests carry the geomancer code revision. A sample that fails is an
-entry with status "error" and its error, and is counted; it is never dropped.
+Both manifests carry the geomancer code revision and the revisions (version and
+commit) of manyruns, manylatents, manylatents-omics and scShapeBench. A sample
+that fails is an entry with status "error" and its error, and is counted; it is
+never dropped. ``n_requested`` is the number of samples asked for, so a reader
+can check the entries against it (1000 synthetic, 79 high_support).
 """
 
 import json
@@ -79,8 +83,11 @@ def _manifest(kind, root, params, samples, seconds):
         "root": str(root),
         "params": params,
         "code_revision": provenance.geomancer_revision(),
+        "engine_revisions": provenance.engine_revisions(),
         "versions": provenance.versions(VERSIONS),
-        "counts": {"ok": status.count("ok"), "error": status.count("error")},
+        "n_requested": len(samples),
+        "counts": {"ok": status.count("ok"), "error": status.count("error"),
+                   "absent": status.count("absent")},
         "seconds": round(seconds, 2),
         "samples": samples,
     }
@@ -187,11 +194,16 @@ def convert_real(root, out, datasets="high_support", max_cells=5000, n_pcs=50, l
     loader, root, folder = _loader(), Path(root), Path(out) / "real"
     folder.mkdir(parents=True, exist_ok=True)
     labels = loader.load_shape_labels(datasets, root=root)
-    ids = sorted(set(loader.list_real(root=root)) & set(labels))[:limit]
+    present = set(loader.list_real(root=root))
+    # ``limit`` (a smoke run) takes the first present datasets and lists no absent ones.
+    ids = [d for d in sorted(labels) if d in present][:limit]
+    requested = sorted(labels) if limit is None else ids
     jobs = [(d, str(loader.real_path(d, root=root)), str(folder), max_cells, n_pcs) for d in ids]
     started = time.time()
     results = map(_real_work, jobs) if workers == 1 else ProcessPoolExecutor(workers).map(_real_work, jobs)
-    samples = {}
+    # A requested dataset that is not on disk is an entry, so it is counted.
+    samples = {d: {"status": "absent", "error": f"{d} is in the {datasets} labels but not under {root}"}
+               for d in requested if d not in present}
     for done, (dataset_id, entry) in enumerate(results, 1):
         samples[dataset_id] = entry
         print(f"[{done}/{len(jobs)}] {dataset_id} {entry['status']} "

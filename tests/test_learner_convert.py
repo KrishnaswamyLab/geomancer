@@ -34,8 +34,10 @@ def test_synthetic_sample_becomes_its_noisy_points_with_hashes_and_revision(tmp_
 
     manifest = convert.convert_synthetic(root, out)
 
-    assert manifest["counts"] == {"ok": 3, "error": 0}
+    assert manifest["counts"] == {"ok": 3, "error": 0, "absent": 0}
     assert manifest["code_revision"]["commit"] == provenance.geomancer_revision()["commit"]
+    # The loader and the engine are named by commit, not only by version.
+    assert manifest["engine_revisions"] == provenance.engine_revisions()
     entry = manifest["samples"]["sample_00001"]
     npz = root / "data" / "synthetic" / "sample_00001.npz"
     points = np.load(out / "synthetic" / "sample_00001.npy")
@@ -55,7 +57,7 @@ def test_an_unreadable_synthetic_sample_is_kept_and_counted_as_an_error(tmp_path
 
     manifest = convert.convert_synthetic(root, tmp_path / "out")
 
-    assert manifest["counts"] == {"ok": 2, "error": 1}
+    assert manifest["counts"] == {"ok": 2, "error": 1, "absent": 0}
     entry = manifest["samples"]["sample_00002"]
     assert entry["status"] == "error" and entry["error"]
     assert not (tmp_path / "out" / "synthetic" / "sample_00002.npy").exists()
@@ -92,9 +94,12 @@ def test_real_points_are_one_computed_pca_on_a_seeded_subsample(tmp_path, monkey
     manifest = convert.convert_real(tmp_path / "root", out, max_cells=50, n_pcs=10)
     again = convert.convert_real(tmp_path / "root", tmp_path / "again", max_cells=50, n_pcs=10)
 
-    # Only the high_support datasets that are present.
-    assert sorted(manifest["samples"]) == ["SCD-0001", "SCD-0002"]
-    assert manifest["counts"] == {"ok": 2, "error": 0}
+    # Every high_support dataset: the present ones converted, the absent one an entry
+    # that is counted, so it never leaves the denominator silently.
+    assert sorted(manifest["samples"]) == ["SCD-0001", "SCD-0002", "SCD-0999"]
+    assert manifest["counts"] == {"ok": 2, "error": 0, "absent": 1}
+    assert manifest["samples"]["SCD-0999"]["status"] == "absent"
+    assert manifest["n_requested"] == 3
     assert manifest["params"] == {"datasets": "high_support", "max_cells": 50, "n_pcs": 10,
                                   "hvg": convert.HVG, "seed": convert.SEED,
                                   "method": convert.REAL_METHOD}
@@ -138,9 +143,11 @@ def test_cli_converts_synthetic_into_the_default_grid_inputs_dir(tmp_path, monke
     assert sorted(manifest["samples"]) == ["sample_00000", "sample_00001"]
 
 
-def test_revision_reports_the_checkout_commit_or_the_env_override(monkeypatch):
+def test_revision_reports_the_checkout_commit_and_refuses_an_env_sha_that_disagrees(monkeypatch):
     import subprocess
     from pathlib import Path
+
+    import pytest
 
     repo = Path(provenance.__file__).resolve().parents[2]
     head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True,
@@ -148,6 +155,44 @@ def test_revision_reports_the_checkout_commit_or_the_env_override(monkeypatch):
     monkeypatch.delenv("GEOMANCER_GIT_SHA", raising=False)
 
     assert provenance.geomancer_revision()["commit"] == head
+    monkeypatch.setenv("GEOMANCER_GIT_SHA", head)
+    assert provenance.geomancer_revision()["commit"] == head
+    # The checkout wins: an env sha that names another commit is refused, not recorded.
     monkeypatch.setenv("GEOMANCER_GIT_SHA", "abc123")
+    with pytest.raises(RuntimeError, match="abc123"):
+        provenance.geomancer_revision()
+
+
+def test_revision_without_a_checkout_takes_the_env_sha_with_dirty_unknown(monkeypatch, tmp_path):
+    monkeypatch.setattr(provenance, "__file__", str(tmp_path / "geomancer" / "learner" / "provenance.py"))
+    monkeypatch.setenv("GEOMANCER_GIT_SHA", "abc123")
+
     assert provenance.geomancer_revision() == {"commit": "abc123", "dirty": None,
                                                "source": "GEOMANCER_GIT_SHA"}
+
+
+def test_an_untracked_file_under_the_package_makes_the_checkout_dirty(monkeypatch, tmp_path):
+    import subprocess
+
+    repo = tmp_path / "repo"
+    (repo / "geomancer" / "learner").mkdir(parents=True)
+    (repo / "geomancer" / "learner" / "provenance.py").write_text("")
+    for args in (["init", "-q"], ["add", "."], ["-c", "user.name=t", "-c", "user.email=t@t",
+                                                 "commit", "-qm", "x"]):
+        subprocess.run(["git", "-C", str(repo), *args], check=True)
+    monkeypatch.setattr(provenance, "__file__", str(repo / "geomancer" / "learner" / "provenance.py"))
+    monkeypatch.delenv("GEOMANCER_GIT_SHA", raising=False)
+    assert provenance.geomancer_revision()["dirty"] is False
+
+    (repo / "geomancer" / "learner" / "new_module.py").write_text("")
+
+    assert provenance.geomancer_revision()["dirty"] is True
+
+
+def test_dist_revision_names_the_git_commit_of_the_loader():
+    rev = provenance.dist_revision("manylatents-omics")
+
+    assert rev["version"] and rev["editable"] is False
+    assert rev["commit"] == "61c6a63717d597ef92c7e27c557b297e92d956f1"
+    assert provenance.dist_revision("no-such-dist") == {"version": None, "commit": None, "editable": None}
+    assert set(provenance.engine_revisions()) == {*provenance.ENGINE_DISTS, "uv_lock_sha256"}
