@@ -48,10 +48,12 @@ selftest: |
 input:
   kind: state_matrix
 
-# `points` is the sample's original points (<sample>.npy from geomancer.learner.convert),
-# where nodes are placed; the adapter refuses it unless it hashes to `points_sha256`.
+# `sample` and `points_sha256` name the sample's original points (<sample>.npy from
+# geomancer.learner.convert), where nodes are placed. The adapter finds the file in
+# $GEOMANCER_GRID_INPUTS and refuses it unless it hashes to `points_sha256`. No path
+# is a param: manyruns hashes the params into spec_id, which must not depend on the machine.
 params:
   extractor: paga          # paga or mapper (geomancer.learner.actions.GRAPHS)
   scale: default           # fine, default or coarse (geomancer.learner.actions.SCALES)
-  points: null
+  sample: null
   points_sha256: null

@@ -2,9 +2,10 @@
 
 manyruns runs this file in the tool's own interpreter with the path of
 request.json (manyruns/pipeline/external.py at v0.1.0). input.npy must be the
-raw points: the adapter checks it against ``params.points`` (itself checked
-against ``params.points_sha256``) and declines anything else, so a state is
-never measured on an embedding by mistake.
+raw points: the adapter checks it against the sample's points (``params.sample``
+and ``params.points_sha256``, found in ``$GEOMANCER_GRID_INPUTS`` as in
+ssb_graph.py) and declines anything else, so a state is never measured on an
+embedding by mistake.
 
 Each vector in geomancer.learner.state.STATES becomes ``<name>_<i>`` scalars
 plus ``<name>_dim``. The states read the input only and never the truth.
@@ -29,7 +30,7 @@ def run(request):
     from geomancer.learner import provenance, state
 
     params = request["params"]
-    points = provenance.verified_points(params["points"], params["points_sha256"])
+    points = provenance.grid_points(params["sample"], params["points_sha256"])
     X = np.load(request["input"], allow_pickle=False)
     if X.shape != points.shape or not np.array_equal(np.asarray(X, float), np.asarray(points, float)):
         raise ValueError("the input is not the raw points; ssb_state measures the raw points only")
@@ -44,7 +45,7 @@ def run(request):
     ad.AnnData(np.zeros((0, 0), dtype=np.float32)).write_h5ad(request["output"])
     return {
         **scalars,
-        "sample": Path(params["points"]).stem,
+        "sample": params["sample"],
         "points_sha256": params["points_sha256"],
         "input_sha256": provenance.sha256_file(request["input"]),
         "state_sha256": provenance.sha256_file(state.__file__),

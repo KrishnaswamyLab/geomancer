@@ -33,6 +33,7 @@ selftest: |
 input:
   kind: state_matrix
 
+# The raw points by sample name and sha256, as in ssb_graph.yaml; no path.
 params:
-  points: null
+  sample: null
   points_sha256: null

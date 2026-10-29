@@ -31,13 +31,22 @@ def _circle(n=150, seed=0, dim=3):
 
 
 def _request(tmp_path, tool, coords, points, **params):
+    """A request as manyruns writes it, and convert.py's inputs folder the adapter reads.
+
+    The params name the points by sample and sha256 only, never by a path, so the
+    run spec is the same on every machine.
+    """
     work = tmp_path / f"tool-{tool}"
     work.mkdir(parents=True)
-    points_path = tmp_path / "sample_00007.npy"
+    inputs = tmp_path / "inputs"
+    inputs.mkdir(exist_ok=True)
+    points_path = inputs / "sample_00007.npy"
     np.save(points_path, points)
+    sha = provenance.sha256_file(points_path)
+    (inputs / "manifest.json").write_text(json.dumps(
+        {"samples": {"sample_00007": {"status": "ok", "npy": "sample_00007.npy", "npy_sha256": sha}}}))
     np.save(work / "input.npy", coords)
-    merged = {"points": str(points_path), "points_sha256": provenance.sha256_file(points_path),
-              **params}
+    merged = {"sample": "sample_00007", "points_sha256": sha, **params}
     request = {"tool": tool, "version": "0.1.0", "params": merged, "seed": 0,
                "input": str(work / "input.npy"), "output": str(work / "output.h5ad"),
                "result": str(work / "result.json"), "workdir": str(work)}
@@ -48,8 +57,10 @@ def _request(tmp_path, tool, coords, points, **params):
 def _run(tool, work, env=None):
     import os
 
+    env = {"GEOMANCER_GRID_INPUTS": str(work.parent / "inputs"), **(env or {})}
     proc = subprocess.run([sys.executable, str(TOOLS / f"{tool}.py"), str(work / "request.json")],
-                          capture_output=True, text=True, env={**os.environ, **(env or {})})
+                          capture_output=True, text=True,
+                          env={k: v for k, v in {**os.environ, **env}.items() if v is not None})
     assert proc.returncode == 0, proc.stderr
     return json.loads((work / "result.json").read_text())
 
@@ -81,7 +92,7 @@ def test_raw_arm_graph_is_the_actions_graph_and_carries_its_hash(tmp_path, extra
     assert s["n_nodes"] == len(graph["nodes"]) and s["n_edges"] == len(graph["edges"])
     assert s["n_cycles"] == s["n_edges"] - s["n_nodes"] + s["n_components"]
     assert s["sample"] == "sample_00007"
-    assert s["points_sha256"] == provenance.sha256_file(tmp_path / "sample_00007.npy")
+    assert s["points_sha256"] == provenance.sha256_file(tmp_path / "inputs" / "sample_00007.npy")
     assert s["input_sha256"] == provenance.sha256_file(work / "input.npy")
     assert s["adapter_sha256"] == provenance.sha256_file(TOOLS / "ssb_graph.py")
     assert s["actions_sha256"] == provenance.sha256_file(Path(actions.__file__))
@@ -117,6 +128,30 @@ def test_points_that_do_not_match_their_hash_are_declined(tmp_path):
 
     assert result["ok"] is False and "sha256" in result["reason"]
     assert not (work / "graph.json").exists()
+
+
+def test_the_params_hold_no_path_and_the_points_are_found_through_the_inputs_folder(tmp_path):
+    points = _circle()
+    work = _request(tmp_path, "ssb_graph", points, points, extractor="paga", scale="default")
+    params = json.loads((work / "request.json").read_text())["params"]
+    assert set(params) == {"sample", "points_sha256", "extractor", "scale"}
+    assert not any("/" in str(v) for v in params.values())
+
+    result = _run("ssb_graph", work, {"GEOMANCER_GRID_INPUTS": None})
+
+    assert result["ok"] is False and "GEOMANCER_GRID_INPUTS" in result["reason"]
+
+
+def test_a_sample_whose_manifest_sha256_is_not_the_runs_is_declined(tmp_path):
+    points = _circle()
+    work = _request(tmp_path, "ssb_graph", points, points, extractor="paga", scale="default")
+    manifest = json.loads((tmp_path / "inputs" / "manifest.json").read_text())
+    manifest["samples"]["sample_00007"]["npy_sha256"] = "1" * 64
+    (tmp_path / "inputs" / "manifest.json").write_text(json.dumps(manifest))
+
+    result = _run("ssb_graph", work)
+
+    assert result["ok"] is False and "manifest" in result["reason"]
 
 
 def test_an_input_with_other_rows_than_the_points_is_declined(tmp_path):

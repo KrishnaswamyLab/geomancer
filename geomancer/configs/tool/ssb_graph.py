@@ -3,8 +3,10 @@
 manyruns runs this file in the tool's own interpreter with one argument, the
 path of request.json (manyruns/pipeline/external.py at v0.1.0). It reads
 input.npy (the embedding the run holds, or the raw points X for the raw arm) and
-``params.points`` (the sample's original points, checked against
-``params.points_sha256``). It calls geomancer.learner.actions.graph, which builds
+the sample's original points, named by ``params.sample`` and
+``params.points_sha256`` and found in ``$GEOMANCER_GRID_INPUTS`` (convert.py's
+folder; provenance.grid_points). No path is a param, so the run spec is the same
+on every machine. It calls geomancer.learner.actions.graph, which builds
 the graph on the input and places each node at the mean of its original points.
 
 It writes graph.json, a minimal output.h5ad (manyruns skips the step without
@@ -64,7 +66,7 @@ def run(request):
     from geomancer.learner import actions, provenance
 
     params = request["params"]
-    points = provenance.verified_points(params["points"], params["points_sha256"])
+    points = provenance.grid_points(params["sample"], params["points_sha256"])
     coords = np.load(request["input"], allow_pickle=False)
     if coords.shape[0] != points.shape[0]:
         raise ValueError(f"the input has {coords.shape[0]} rows and the points have {points.shape[0]} rows")
@@ -77,7 +79,7 @@ def run(request):
     ad.AnnData(np.zeros((0, 0), dtype=np.float32)).write_h5ad(request["output"])
     return {
         **structure(payload),
-        "sample": Path(params["points"]).stem,
+        "sample": params["sample"],
         "points_sha256": params["points_sha256"],
         "input_sha256": provenance.sha256_file(request["input"]),
         "graph_sha256": provenance.sha256_file(graph_path),
