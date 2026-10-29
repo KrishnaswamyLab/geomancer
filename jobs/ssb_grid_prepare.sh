@@ -32,6 +32,10 @@ if [ -n "$(git -C "$SRC" status --porcelain --untracked-files=all)" ]; then
   exit 1
 fi
 
+# SLURM opens --output=outputs/slurm/... in the submit directory before the job starts,
+# so the folder must exist there first.
+mkdir -p "$REPO/outputs/slurm"
+
 cd "$SRC"
 uv sync --locked --extra learner
 uv run --no-sync geomancer tools install ssb_graph
@@ -41,3 +45,4 @@ uv run --no-sync geomancer tools list
 
 echo "ready: $SRC"
 echo "pass to every grid job: --export=ALL,GEOMANCER_GIT_SHA=$SHA"
+echo "outputs: $SCRATCH/geomancer/outputs/grid/${SHA:0:12}/"
