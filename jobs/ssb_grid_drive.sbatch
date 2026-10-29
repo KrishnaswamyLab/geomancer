@@ -17,7 +17,8 @@
 #
 # The whole sequence, all on the LAPTOP unless marked (replace <sha> with the full
 # commit; every job gets --export=ALL,GEOMANCER_GIT_SHA=<sha>):
-#   0. MILA LOGIN NODE: bash jobs/ssb_grid_prepare.sh <sha>
+#   0. LAPTOP: git push origin <branch>. The prepare script fetches <sha> from origin.
+#      MILA LOGIN NODE, in $SCRATCH/geomancer: bash jobs/ssb_grid_prepare.sh <sha>
 #   1. shop sbatch mila jobs/ssb_grid_convert.sbatch --sync -- --export=ALL,GEOMANCER_GIT_SHA=<sha>
 #   2. shop sbatch mila jobs/ssb_grid_drive.sbatch -- --dependency=afterok:<convert id> \
 #        --array=0-99 --export=ALL,GEOMANCER_GIT_SHA=<sha>,GEOMANCER_GRID_SOURCE=synthetic
