@@ -161,7 +161,8 @@ def summarize(rows, baseline="best_fixed"):
     grouped = defaultdict(list)
     for row in rows:
         grouped[row["policy"]].append(row)
-    keys = [k for k in rows[0] if k not in ("policy", "seed", "fold")]
+    # Metric names from every row: refusal_precision exists only where a policy refused.
+    keys = list(dict.fromkeys(k for r in rows for k in r if k not in ("policy", "seed", "fold")))
     base = {(r["seed"], r["fold"]): r["reward"] for r in grouped.get(baseline, [])}
     summary = {}
     for policy, rs in grouped.items():

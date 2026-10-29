@@ -47,7 +47,7 @@ def test_without_state_a_learner_is_no_better_than_best_fixed(tmp_path):
 
 
 def test_refusal_counts_and_precision(tmp_path):
-    summary = _summary(tmp_path, "refuse_below=0.95", "policies=regression_greedy")
+    summary = _summary(tmp_path, "refuse_below=0.95", "policies=random,regression_greedy")
     m = summary["regression_greedy"]
 
     # Nothing reaches 0.95, so every refusal is justified.
