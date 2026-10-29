@@ -1,0 +1,24 @@
+# One embedding of the scShapeBench action grid: Diffusion map at manylatents' defaults,
+# except n_landmark, in 2 dimensions. The grid's graph runs branch from this run's embedding.
+# n_components is capped by the data, because synthetic samples have 2 to 5 dimensions.
+#
+# n_landmark: null, decided 2026-10-29. manyruns builds the step from the DiffusionMapModule
+# class, whose n_landmark default is 2000, and at that default EVERY sample fails
+# (manylatents 0.1.7 and 0.1.8, measured on the driver):
+# - 2000 points or fewer: graphtools raises "n_landmark (2000) >= n_samples";
+# - more than 2000 points: the landmark interpolation raises "ValueError: dimension
+#   mismatch" (graphtools base.py:1228), after about 100 s at 5000 points.
+# null is the value in manylatents' own Hydra config (diffusionmap.yaml), and it fixes both
+# (sample_00028, 2251 points: ok in 17.6 s; SCD-0002, 5000 points: ok in 51.5 s, 3.8 GB).
+name: ssb_embed_diffmap
+id: ssb.embed.diffmap
+source:
+  kind: none
+  note: "The embedding arm of the scShapeBench action grid (geomancer.learner); manylatents defaults, no landmarks."
+question: "Embed one scShapeBench sample in 2 dimensions with Diffusion map"
+suits: []
+steps:
+  - name: diffusion_map
+    group: latent
+    params: {n_components: 2, n_landmark: null}
+    limits: {n_components: [n_samples, n_features]}

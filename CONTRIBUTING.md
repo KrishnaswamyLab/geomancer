@@ -21,6 +21,10 @@ To fix manyruns while working here:
 1. Clone manyruns beside this checkout, on a branch off `dev`. Use
    `uv run --with-editable ../manyruns geomancer ...` and
    `uv run --with-editable ../manyruns pytest` on every local invocation.
+   Never use an editable manyruns (or manylatents, manylatents-omics or
+   scShapeBench) for the learner's action grid: its rows name each install by its
+   git commit, and an editable install has none. `geomancer.learner.drive`
+   refuses one unless `allow_editable=true`, and those rows are not evidence.
 2. Send the failing test and fix upstream to manyruns `dev`; run its required checks.
 3. A geomancer development branch may pin `branch = "dev"` or a development `rev`
    and regenerate its lock. Pushes to that branch may pass, but its PR targeting

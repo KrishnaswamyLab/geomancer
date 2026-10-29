@@ -1,0 +1,39 @@
+# ssb_state: the learner's context vectors (geomancer.learner.state.STATES) for one
+# sample, so the policy's inputs are in run records too. It reads the raw points
+# only, and never the truth.
+name: ssb_state
+version: "0.1.0"
+summary: Input-geometry and PCA-spectrum vectors of one sample's raw points
+
+source:
+  kind: none
+  note: "geomancer.learner.state; cheap input measurements, no method paper."
+
+python: "3.12"
+
+# Compiled to locks/ssb_state-<version>-<platform>.lock as for ssb_graph: without the
+# first line, held to geomancer's uv.lock. geomancer.learner.state is not in the
+# lock; each result names it by geomancer_revision and state_sha256.
+requires:
+  - ssb_state==0.1.0       # this adapter + geomancer.learner.state; not a package
+  - numpy
+  - scipy
+  - scikit-learn
+  - anndata                # output.h5ad
+
+entrypoint: ssb_state.py
+
+selftest: |
+  import numpy as np, anndata
+  from scipy.sparse.csgraph import connected_components
+  from sklearn.neighbors import NearestNeighbors, kneighbors_graph
+  x = np.random.default_rng(0).normal(size=(40, 3))
+  connected_components(kneighbors_graph(x, 5), directed=False)
+
+input:
+  kind: state_matrix
+
+# The raw points by sample name and sha256, as in ssb_graph.yaml; no path.
+params:
+  sample: null
+  points_sha256: null

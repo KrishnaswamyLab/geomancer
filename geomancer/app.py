@@ -71,11 +71,20 @@ def _point_dir(name: str, lab: Path) -> None:
     os.environ[f"MANYRUNS_{name}"] = str(destination)
 
 
-def main(argv: list[str] | None = None) -> int:
-    _load_cwd_dotenv()
+def declare_lab_configs() -> None:
+    """Point manyruns at bundled + lab recipes, datasets, metrics and tools.
+
+    Shared by `main` and by geomancer.learner.drive, which drives manyruns sessions
+    from Python and so never passes through `main`.
+    """
     root = resources.files(__package__) / "configs"
     for kind in ("RECIPE", "DATASET", "METRICS", "TOOL"):
         _point_dir(f"{kind}_DIR", Path(str(root / kind.lower())))
+
+
+def main(argv: list[str] | None = None) -> int:
+    _load_cwd_dotenv()
+    declare_lab_configs()
     if not env.is_set("CALLER"):
         os.environ["MANYRUNS_CALLER"] = __package__
         os.environ["MANYRUNS_CALLER_VERSION"] = __version__

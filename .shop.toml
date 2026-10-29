@@ -1,0 +1,4 @@
+# Where `shop sbatch` and `shop fetch` find this repo on each cluster.
+[remote.mila]
+path = "$SCRATCH/geomancer"
+outputs_root = "outputs"

@@ -1,0 +1,59 @@
+# ssb_graph: one graph from one embedding (or the raw points) of one scShapeBench
+# sample. A lab tool, so each graph run of the action grid is one manyruns run record.
+#
+# EXTRACTION ONLY. The truth never enters a run and nothing here scores: the
+# g-vector is what an agent observes, so a reward in it would leak the answer.
+# geomancer/learner/score.py scores graph.json after the runs, by run_id.
+#
+# A recipe step uses it as {name: ssb_graph, group: analysis, tool: ssb_graph,
+# params: {...}}: the step name must be the tool name (manyruns resolves the step
+# name), and without `group: analysis` the runner records the step as unsupported.
+name: ssb_graph
+version: "0.1.0"
+summary: PAGA or Mapper graph of one embedding, with nodes placed in the original points
+
+source:
+  kind: none
+  note: "geomancer.learner.actions.graph; the builders follow scShapeBench's method benchmark
+    (synthetic/method_benchmark/run_methods.py at d81963f)."
+
+python: "3.12"
+
+# The lock (locks/ssb_graph-<version>-<platform>.lock) is compiled from these lines,
+# without the first, by `python -m geomancer.learner.lock tool=ssb_graph`, with every
+# version held to geomancer's uv.lock so the tool builds the same graphs as the
+# learner. The first line names the adapter beside this file and the geomancer code
+# it imports: that code is NOT in the lock, and each result names it by
+# geomancer_revision and actions_sha256.
+requires:
+  - ssb_graph==0.1.0       # this adapter + geomancer.learner.actions; not a package
+  - numpy
+  - scipy
+  - scikit-learn
+  - anndata                # output.h5ad
+  - scanpy>=1.11           # PAGA: neighbors, leiden, paga
+  - python-igraph          # sc.tl.leiden(flavor="igraph")
+  - kmapper>=2.1           # Mapper
+
+entrypoint: ssb_graph.py
+
+# Exercises the PAGA path end to end (neighbors -> igraph leiden -> paga), plus kmapper.
+selftest: |
+  import numpy as np, anndata as ad, scanpy as sc, kmapper
+  a = ad.AnnData(np.random.default_rng(0).normal(size=(60, 2)))
+  sc.pp.neighbors(a, n_neighbors=10, use_rep="X")
+  sc.tl.leiden(a, flavor="igraph", n_iterations=2, directed=False)
+  sc.tl.paga(a, groups="leiden")
+
+input:
+  kind: state_matrix
+
+# `sample` and `points_sha256` name the sample's original points (<sample>.npy from
+# geomancer.learner.convert), where nodes are placed. The adapter finds the file in
+# $GEOMANCER_GRID_INPUTS and refuses it unless it hashes to `points_sha256`. No path
+# is a param: manyruns hashes the params into spec_id, which must not depend on the machine.
+params:
+  extractor: paga          # paga or mapper (geomancer.learner.actions.GRAPHS)
+  scale: default           # fine, default or coarse (geomancer.learner.actions.SCALES)
+  sample: null
+  points_sha256: null

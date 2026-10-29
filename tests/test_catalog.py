@@ -9,17 +9,30 @@ import yaml
 ROOT = Path(str(resources.files("geomancer") / "configs"))
 
 
+# Lab configs beside the deletable examples: the scShapeBench action grid's.
+GRID = {"recipe": {"ssb_embed_pca", "ssb_embed_diffmap", "ssb_embed_phate"}, "dataset": set(),
+        "metrics": set()}
+
+
 @pytest.mark.parametrize("kind", ["recipe", "dataset", "metrics"])
 def test_config_roots_and_examples(kind):
     root = ROOT / kind
     assert root.is_dir(), f"{kind} config root moved"
     paths = list(root.glob("*.yaml"))
-    assert len(paths) == 1
-    assert "DELETABLE EXAMPLE" in paths[0].read_text()
+    examples = [p for p in paths if p.stem not in GRID[kind]]
+    assert {p.stem for p in paths} - {p.stem for p in examples} == GRID[kind]
+    assert len(examples) == 1
+    assert "DELETABLE EXAMPLE" in examples[0].read_text()
 
 
-def test_tool_directory_intentionally_omitted():
-    assert not (ROOT / "tool").exists(), "G-1 has no lab tool; enable it with G-2"
+def test_lab_tools_have_their_adapter_and_a_lock_per_platform():
+    root = ROOT / "tool"
+    assert {p.stem for p in root.glob("*.yaml")} == {"ssb_graph", "ssb_state"}
+    for name in ("ssb_graph", "ssb_state"):
+        cfg = yaml.safe_load((root / f"{name}.yaml").read_text())
+        assert (root / cfg["entrypoint"]).is_file()
+        for tag in ("macos-arm64", "linux-x86_64"):
+            assert (root / "locks" / toolchain.lock_name(cfg, tag)).is_file()
 
 
 def test_every_config_validates_and_no_lab_file_shadows_bundled_names():
