@@ -38,8 +38,16 @@ mkdir -p "$REPO/outputs/slurm"
 
 cd "$SRC"
 uv sync --locked --extra learner
-uv run --no-sync geomancer tools install ssb_graph
-uv run --no-sync geomancer tools install ssb_state
+# A tool env lives in ~/.cache/manyruns/tools/<tool>/<lock digest>, shared by every
+# checkout whose lock is the same, and `tools install` refuses to rebuild one that
+# exists. So build only a tool that `tools check` does not report as ready.
+for tool in ssb_graph ssb_state; do
+  if uv run --no-sync geomancer tools check | grep -Eq "^[[:space:]]*$tool[[:space:]]+[^[:space:]]+[[:space:]]+ready"; then
+    echo "$tool: already built from this lock"
+  else
+    uv run --no-sync geomancer tools install "$tool"
+  fi
+done
 uv run --no-sync geomancer tools check
 uv run --no-sync geomancer tools list
 

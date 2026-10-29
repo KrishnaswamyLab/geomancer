@@ -35,10 +35,10 @@
 #   3 s each, mostly interpreter start and imports. Peak RSS 1.3 GB.
 #   -> a task of 10 samples x 3 seeds is about 30 min of worker time, so about 8 min
 #   with 4 workers. --time=1:00:00 leaves a margin for a slower node.
-# - real, 5000 cells x 50 PCs (SCD-0002), 4 actions: pca 15 s, phate 12 s, diffmap 17 s
-#   (it fails), raw 4 s, per unit. A full dataset-seed (24 actions) is about 3 to 4 min,
-#   so a task (1 dataset x 3 seeds) is about 3 min with 4 workers. Peak RSS 5.0 GB at
-#   5000 cells: 4 workers x 5 GB + the parent -> --mem=32G.
+# - real, 5000 cells x 50 PCs (SCD-0002), all 24 actions: 122 s per seed (pca unit 42 s,
+#   phate 42 s, diffmap 17 s until it fails, raw 17 s). One task (1 dataset x 3 seeds)
+#   took 180 s with 2 workers. Peak RSS 5.0 GB at 5000 cells, so 4 workers x 5 GB + the
+#   parent -> --mem=32G.
 # - the default metric suite costs 0.23 s per branched graph run at 775 points, 0.62 s
 #   at 1431 and 2.8 s at 5000; 0.005 s on raw and state runs. It is 8% of the
 #   synthetic wall time.

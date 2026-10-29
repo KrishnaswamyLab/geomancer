@@ -2,8 +2,9 @@
 # Grid step 3 of 3: score the graphs after the runs (score.py), then join the rows and
 # scores into one table per seed (table.py). Submit it with
 # --dependency=afterany:<drive array job id>, so a failed shard is counted in the
-# table (as missing or aborted cells) instead of blocking it. table.py refuses a
-# table with cells that have no row; rerun the drive array first, then this job.
+# table (as missing or aborted cells) instead of blocking it. table.py counts the
+# missing cells in config.json, and train.py refuses a table with missing cells
+# unless allow_missing=true. To fill them, resubmit the drive array, then this job.
 #
 # Submit from the laptop (see jobs/ssb_grid_drive.sbatch for the whole sequence):
 #   synthetic: shop sbatch mila jobs/ssb_grid_reduce.sbatch -- --dependency=afterany:<id> \
@@ -30,8 +31,9 @@ source "$SCRATCH/geomancer-grid-$GEOMANCER_GIT_SHA/jobs/ssb_grid_env.sh"
 SOURCE="${GEOMANCER_GRID_SOURCE:?set GEOMANCER_GRID_SOURCE to synthetic or real}"
 OUT="$GRID_ROOT/$SOURCE"
 
-extra=()
-if [ "$SOURCE" = real ]; then extra=(classifiers=rf,stats_svm,gnn); fi
+# The classifiers of the old real table; synthetic scoring takes no classifier.
+classifiers=rf
+if [ "$SOURCE" = real ]; then classifiers=rf,stats_svm,gnn; fi
 run geomancer.learner.score grid="$OUT" source="$SOURCE" inputs="$INPUTS/$SOURCE" \
-  workers="$WORKERS" "${extra[@]}"
+  workers="$WORKERS" classifiers="$classifiers"
 run geomancer.learner.table grid="$OUT" source="$SOURCE"
