@@ -101,3 +101,80 @@ def test_a_table_with_outer_folds_fits_on_its_nested_rewards(tmp_path):
     assert result["policies"]["best_fixed"]["reward"]["mean"] == pytest.approx(0.5)
     assert result["policies"]["oracle"]["reward"]["mean"] == pytest.approx(0.9)
     assert result["policies"]["best_fixed"]["n"] == 2
+
+
+# ── cells without a reward are masked, never imputed (hard rule 7) ────────────
+
+def _masked_table(tmp_path, missing=()):
+    # Action "a" scores 0.0 on sample 0 (a graph that ran and scored 0); "b" failed on
+    # sample 0 (reward None); "dead" failed on every sample; sample 2 has no cell that ran.
+    rows = [{"sample": 0, "action": "a", "reward": 0.0, "status": "ok"},
+            {"sample": 0, "action": "b", "reward": None, "status": "not_run"},
+            {"sample": 1, "action": "a", "reward": 0.2, "status": "ok"},
+            {"sample": 1, "action": "b", "reward": 0.8, "status": "ok"},
+            {"sample": 2, "action": "a", "reward": None, "status": "error"},
+            {"sample": 2, "action": "b", "reward": None, "status": "error"}]
+    rows += [{"sample": i, "action": "dead", "reward": None, "status": "not_run"} for i in range(3)]
+    (tmp_path / "config.json").write_text(json.dumps(
+        {"actions": ["a", "b", "dead"], "missing": [list(m) for m in missing]}))
+    (tmp_path / "rewards.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (tmp_path / "states.jsonl").write_text("".join(
+        json.dumps({"sample": i, "input_geometry": [float(i)]}) + "\n" for i in range(3)))
+    return tmp_path
+
+
+def test_a_failed_cell_is_masked_not_scored_as_zero(tmp_path):
+    table = train.load_table(_masked_table(tmp_path), "input_geometry")
+
+    # Sample 2 has no observed reward and "dead" never ran: both leave, and are listed.
+    assert table["samples"] == [0, 1] and table["excluded_reasons"] == {2: "no observed reward"}
+    assert table["actions"] == ["a", "b"] and table["dropped_actions"] == ["dead"]
+    assert table["R"][0, 0] == 0.0 and np.isnan(table["R"][0, 1])
+    assert table["masked"] == {"not_run": 4, "error": 2}
+
+
+def test_a_cell_with_no_row_refuses_the_table_unless_allowed(tmp_path):
+    path = _masked_table(tmp_path, missing=[(1, "dead")])
+
+    with pytest.raises(ValueError, match="no row"):
+        train.load_table(path, "input_geometry")
+    assert train.load_table(path, "input_geometry", allow_missing=True)["masked"]["missing"] == 1
+
+
+def test_a_choice_whose_cell_has_no_reward_is_counted_and_not_averaged_as_zero():
+    cfg = dict(train.config)
+    R = np.array([[np.nan, 0.5], [0.4, 0.8]])
+
+    metrics = train.score(np.array([0, 1]), None, R, cfg)
+
+    assert metrics["unobserved_rate"] == 0.5
+    assert metrics["reward"] == pytest.approx(0.8) and metrics["regret"] == pytest.approx(0.0)
+
+
+def test_policies_fit_on_observed_cells_only(tmp_path):
+    table = train.load_table(_masked_table(tmp_path), "input_geometry")
+    cfg = dict(train.config)
+    X, R = table["X"], table["R"]
+    rng = np.random.default_rng(0)
+
+    choice, _ = train._best_fixed(X, R, X, cfg, rng)
+    # "b" has mean 0.8 over its one observed cell; a zero-imputed "b" would lose to "a" (0.1).
+    assert list(choice) == [1, 1]
+    for name in ("regression_greedy", "contextual_bandit"):
+        choice, predicted = train.POLICIES[name](X, R, X, cfg, rng)
+        assert np.isfinite(predicted).all(), name
+
+
+def test_the_summary_names_every_file_its_numbers_rest_on(tmp_path):
+    from geomancer.learner import provenance
+
+    path = _table(tmp_path)
+    out = tmp_path / "out"
+    train.main([f"table={path}", f"out={out}", "seeds=1", "policies=best_fixed"])
+
+    summary = json.loads((out / "summary.json").read_text())
+    files = summary["table"]["files"]
+    for name in ("rewards.jsonl", "states.jsonl", "config.json"):
+        assert files[name] == provenance.sha256_file(path / name)
+    assert summary["code_revision"]["commit"] == provenance.geomancer_revision()["commit"]
+    assert summary["masked"] == {}
