@@ -1,0 +1,12 @@
+# Models the lab drives manyruns runs with, through `manyagents-drive`.
+#
+# Each entry is what a run's decision rows will name (`chooser`) and how to reach the model.
+# These are untuned local baselines, scored with `manyagents-conformance` over manyruns'
+# driver fixtures.
+baselines:
+  - chooser: llm:qwen3:1.7b
+    agent: ollama
+    model: qwen3:1.7b
+  - chooser: llm:qwen3:8b
+    agent: ollama
+    model: qwen3:8b

@@ -1,0 +1,9 @@
+{
+ "knn": "PHATE neighbours per point. Lower keeps fine side branches apart; higher merges them into a smoother trunk.",
+ "t": "PHATE diffusion time. Higher is smoother and more line-like; lower keeps local detail and small branches.",
+ "decay": "PHATE kernel decay. Lower gives the kernel a heavier tail, so distant points connect more.",
+ "n_components": "Output dimensions. Keep at 2 or 3 for a plot; it does not change the shape.",
+ "n_neighbors": "UMAP neighbours. Higher shows more global structure and fewer fragments; lower shows local clusters.",
+ "min_dist": "UMAP minimum distance. Higher spreads points out; lower packs clusters tighter.",
+ "resolution": "Leiden resolution. Higher gives more, smaller clusters; lower merges them."
+}

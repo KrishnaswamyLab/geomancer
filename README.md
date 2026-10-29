@@ -55,6 +55,19 @@ outright on 0.1.0. Do not commit environment files.
 name is already set. The wrapper delegates the CLI to manyruns; caller-aware
 version formatting and run records arrive upstream in 0.1.1.
 
+## Drive a run with a model
+
+manyruns lets any model attach to a running session and talk, propose, or drive, under a tag
+that says who has control and a handbrake (`ctrl+b`). The lab's part is what the knobs mean:
+`geomancer/configs/driver/knobs.json` explains each PHATE, UMAP and Leiden knob for the model,
+because manyruns only offers names, types and bounds. Pass it to the reference driver:
+
+```sh
+manyagents-drive outputs/<project> --model qwen3:8b --knobs geomancer/configs/driver/knobs.json
+```
+
+`geomancer/configs/driver/models.yaml` lists the untuned baselines a lab model has to beat.
+
 ## Development and provenance
 
 The initial offline skeleton intentionally omits `uv.lock`. On a networked machine:
