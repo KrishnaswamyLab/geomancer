@@ -72,3 +72,32 @@ def test_gain_over_best_fixed_is_paired_by_seed_and_fold(tmp_path):
     assert gain["mean"] == pytest.approx(0.3)
     assert gain["wins"] == gain["of"] == 5
     assert summary["best_fixed"]["gain_over_best_fixed"]["mean"] == 0.0
+
+
+def test_a_table_with_outer_folds_fits_on_its_nested_rewards(tmp_path):
+    # In rewards.jsonl action a is best; in rewards_nested.jsonl (what a policy may
+    # fit on) action b is. Policies must split on outer_folds and fit on the nested ones.
+    samples = [f"s{i}" for i in range(6)]
+    outer = [samples[:3], samples[3:]]
+    (tmp_path / "config.json").write_text(json.dumps(
+        {"actions": ["a", "b"], "reward": "real_label", "outer_folds": outer}))
+    (tmp_path / "states.jsonl").write_text("".join(
+        json.dumps({"sample": s, "none": []}) + "\n" for s in samples)
+        + json.dumps({"sample": "broken", "error": "OSError: unreadable"}) + "\n")
+    (tmp_path / "rewards.jsonl").write_text("".join(
+        json.dumps({"sample": s, "action": a, "reward": r}) + "\n"
+        for s in samples + ["broken"] for a, r in (("a", 0.9), ("b", 0.5))))
+    (tmp_path / "rewards_nested.jsonl").write_text("".join(
+        json.dumps({"sample": s, "action": a, "outer_fold": k, "reward": r}) + "\n"
+        for k, f in enumerate(outer) for s in samples if s not in f
+        for a, r in (("a", 0.1), ("b", 0.6))))
+    out = tmp_path / "out"
+
+    train.main([f"table={tmp_path}", "state=none", f"out={out}", "seeds=1",
+                "policies=best_fixed,oracle"])
+
+    result = json.loads((out / "summary.json").read_text())
+    assert result["excluded"] == ["broken"] and result["split"].startswith("outer_folds")
+    assert result["policies"]["best_fixed"]["reward"]["mean"] == pytest.approx(0.5)
+    assert result["policies"]["oracle"]["reward"]["mean"] == pytest.approx(0.9)
+    assert result["policies"]["best_fixed"]["n"] == 2

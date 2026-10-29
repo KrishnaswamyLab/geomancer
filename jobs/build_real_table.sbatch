@@ -1,9 +1,12 @@
 #!/bin/bash
 # Build the learner's real-data reward table on the 79 scShapeBench high_support datasets.
 # Stage 1 (graphs): 24 actions on each dataset, 5000 cells per dataset.
-# Stage 2 (rewards): out-of-fold probabilities of scShapeBench's fixed classifiers.
+# Stage 2 (rewards): out-of-fold probabilities of scShapeBench's fixed classifiers, plus
+# rewards_nested.jsonl (each folds_v1 fold left out in turn) that train.py fits policies on.
 # Submit from a laptop checkout: shop sbatch mila jobs/build_real_table.sbatch --sync
 # Re-run only stage 2: STAGES=rewards shop sbatch mila jobs/build_real_table.sbatch --sync
+# Resubmitting resumes stage 1 from the datasets already in $OUT (resume=true); a run with
+# other settings refuses to resume, so delete $OUT to start over.
 #
 # Sizing (measured on a laptop at 5000 cells): diffmap peaks near 10 GB per worker and
 # the 24 actions take 2-3 min per dataset, so 6 workers at 16 GB each finish in about 1 h.
@@ -30,7 +33,7 @@ LOADER="manylatents-omics @ git+https://github.com/latent-reasoning-works/manyla
 for stage in $STAGES; do
   uv run --extra learner --with "$LOADER" --with pyarrow \
     python -m geomancer.learner.table source=real stage="$stage" out="$OUT" \
-    max_cells=5000 n_pcs=50 points=X_pca workers=6 classifiers=rf,stats_svm,gnn
+    max_cells=5000 n_pcs=50 points=X_pca workers=6 classifiers=rf,stats_svm,gnn resume=true
 done
 
 wc -l "$OUT"/graphs.jsonl "$OUT"/states.jsonl

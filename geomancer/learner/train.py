@@ -11,6 +11,11 @@ A decision here is one step: choosing an action never changes the next state.
 So DAgger reduces to behaviour cloning, and the full-information learner is
 `regression_greedy`. `contextual_bandit` sees only the reward of the action it
 chose, one training sample at a time.
+
+A table whose config.json has ``outer_folds`` (the real table) is split on those
+folds, and policies are fit on ``rewards_nested.jsonl``: rewards recomputed
+without the test fold, so no test label reaches a policy through the rewards it
+fits on. Other tables are split at random into ``folds``.
 """
 
 import json
@@ -27,7 +32,7 @@ config = {
     "state": "input_geometry",
     "reward": "reward",
     "policies": "random,best_fixed,regression_greedy,contextual_bandit,oracle",
-    "folds": 5,
+    "folds": 5,  # random folds; ignored when the table has outer_folds
     "seeds": 3,
     "ridge": 1.0,
     "ucb_alpha": 0.5,
@@ -39,22 +44,51 @@ config = {
 
 
 def load_table(path, state, reward="reward"):
-    """Rewards as a samples x actions matrix, states as samples x features."""
+    """Rewards as a samples x actions matrix, states as samples x features.
+
+    With ``outer_folds`` in config.json, also ``folds`` (sample indices per outer
+    fold) and ``R_fit`` (outer folds x samples x actions, from rewards_nested.jsonl).
+    Samples whose states row is an error have no state, so they are left out and
+    listed in ``excluded``.
+    """
     path = Path(path)
-    rows = [json.loads(line) for line in (path / "rewards.jsonl").read_text().splitlines()]
-    actions = json.loads((path / "config.json").read_text())["actions"]
-    states = {}
+    cfg = json.loads((path / "config.json").read_text())
+    actions = cfg["actions"]
+    states, excluded = {}, []
     for line in (path / "states.jsonl").read_text().splitlines():
         row = json.loads(line)
-        states[row["sample"]] = row[state]
+        if "error" in row:
+            excluded.append(row["sample"])
+        else:
+            states[row["sample"]] = row[state]
     samples = sorted(states)
     index = {s: i for i, s in enumerate(samples)}
     col = {a: j for j, a in enumerate(actions)}
-    R = np.zeros((len(samples), len(actions)))
-    for row in rows:
-        R[index[row["sample"]], col[row["action"]]] = row.get(reward, 0.0) or 0.0
+
+    def matrix(rows):
+        R = np.zeros((len(samples), len(actions)))
+        for row in rows:
+            if row["sample"] not in excluded:
+                R[index[row["sample"]], col[row["action"]]] = row.get(reward, 0.0) or 0.0
+        return R
+
+    def read(name):
+        return [json.loads(line) for line in (path / name).read_text().splitlines()]
+
     X = np.array([states[s] for s in samples], dtype=float).reshape(len(samples), -1)
-    return {"samples": samples, "actions": actions, "X": X, "R": R}
+    table = {"samples": samples, "actions": actions, "X": X, "R": matrix(read("rewards.jsonl")),
+             "excluded": excluded, "folds": None, "R_fit": None, "split": "random"}
+    if "outer_folds" in cfg:
+        nested = read("rewards_nested.jsonl")
+        table["folds"] = [np.array([index[s] for s in f if s in index], dtype=int)
+                          for f in cfg["outer_folds"]]
+        table["R_fit"] = np.stack([matrix([r for r in nested if r["outer_fold"] == k])
+                                   for k in range(len(cfg["outer_folds"]))])
+        table["split"] = "outer_folds, fit on rewards_nested"
+    elif cfg.get("reward") == "real_label":
+        table["split"] = ("random; WARNING: no rewards_nested, so the training rewards were made "
+                          "by classifiers fit on the test samples' labels")
+    return table
 
 
 def _features(X_train, X):
@@ -129,13 +163,20 @@ def score(choice, predicted, R_test, cfg):
 def run(table, cfg):
     """Every policy on every seed and fold; one metrics row each."""
     X, R = table["X"], table["R"]
+    outer = table.get("folds")
     names = cfg["policies"].split(",")
     rows = []
     for seed in range(cfg["seeds"]):
         rng = np.random.default_rng(seed)
-        folds = np.array_split(rng.permutation(len(R)), cfg["folds"])
+        folds = outer if outer is not None else np.array_split(rng.permutation(len(R)), cfg["folds"])
         for k, test in enumerate(folds):
-            train = np.setdiff1d(np.arange(len(R)), test)
+            if outer is not None:
+                train = np.concatenate([f for j, f in enumerate(outer) if j != k])
+                R_fit = table["R_fit"][k]
+            else:
+                train, R_fit = np.setdiff1d(np.arange(len(R)), test), R
+            if not len(test) or not len(train):
+                continue
             for name in names:
                 if name == "oracle":
                     choice, predicted = R[test].argmax(1), R[test].max(1)
@@ -143,7 +184,7 @@ def run(table, cfg):
                     # NumPy on macOS Accelerate warns spuriously inside matmul; the
                     # finiteness check below is what guards the result.
                     with np.errstate(all="ignore"):
-                        choice, predicted = POLICIES[name](X[train], R[train], X[test], cfg,
+                        choice, predicted = POLICIES[name](X[train], R_fit[train], X[test], cfg,
                                                            np.random.default_rng([seed, k]))
                     if predicted is not None and not np.isfinite(predicted).all():
                         raise FloatingPointError(f"{name}: non-finite predictions, seed {seed} fold {k}")
@@ -185,7 +226,10 @@ def main(argv=None):
     rows = run(table, cfg)
     (out / "metrics.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     summary = summarize(rows)
-    (out / "summary.json").write_text(json.dumps({"config": cfg, "policies": summary}, indent=2))
+    (out / "summary.json").write_text(json.dumps(
+        {"config": cfg, "split": table["split"], "excluded": table["excluded"], "policies": summary},
+        indent=2))
+    print(f"split: {table['split']}" + (f"; excluded {table['excluded']}" if table["excluded"] else ""))
     for policy, m in summary.items():
         print(f"{policy:18s} reward={m['reward']['mean']:.3f}±{m['reward']['std']:.3f} "
               f"regret={m['regret']['mean']:.3f} silent={m['silent_failure_rate']['mean']:.3f} "

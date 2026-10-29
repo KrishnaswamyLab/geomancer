@@ -86,6 +86,12 @@ def payloads_to_graphs(payloads):
     return graphs
 
 
+def folds_v1():
+    from scshapebench.evaluator.runner import load_folds
+
+    return load_folds(FOLDS)
+
+
 def real_label(payloads, labels, models=("rf",), folds=None, device="cpu"):
     """Out-of-fold probability that scShapeBench's fixed classifier gives each dataset its labels.
 
@@ -98,11 +104,13 @@ def real_label(payloads, labels, models=("rf",), folds=None, device="cpu"):
 
     reward = mean over the 4 classes of y*p + (1-y)*(1-p). ``reward`` and ``probs``
     are the first model's; every model also has ``reward_<name>`` and ``probs_<name>``.
-    Returns one row per dataset in ``payloads``.
+    A model with no finite probability for a dataset gets reward 0 and
+    ``error_<name>``; for the first model the row is then an error. Returns one row
+    per dataset in ``payloads``.
     """
     import torch
     from scshapebench.datasets.labels import CLASS_ORDER
-    from scshapebench.evaluator.runner import filter_split_ids, load_folds, set_model_seed
+    from scshapebench.evaluator.runner import filter_split_ids, set_model_seed
     from scshapebench.evaluator.validator import validate_submission
     from scshapebench.features.graph_stats import extract_features as graph_stats
     from scshapebench.features.persistence import extract_features as persistence
@@ -112,14 +120,23 @@ def real_label(payloads, labels, models=("rf",), folds=None, device="cpu"):
     known = [m.name for m in get_models(torch.device(device))]
     if unknown := sorted(set(models) - set(known)):
         raise ValueError(f"unknown models {unknown}; scShapeBench has {known}")
-    folds = load_folds(FOLDS) if folds is None else folds
-    graphs = payloads_to_graphs({d: p for d, p in payloads.items() if p is not None and d in labels})
-    if graphs:
-        with contextlib.redirect_stdout(io.StringIO()):
-            validate_submission(graphs)
+    folds = folds_v1() if folds is None else folds
+    failed, graphs = {}, {}
+    for d, payload in payloads.items():
+        if payload is None or d not in labels:
+            failed[d] = "the action failed" if payload is None else "no label"
+            continue
+        # One graph at a time, so a graph the loader or validator rejects fails alone.
+        try:
+            graph = payloads_to_graphs({d: payload})[d]
+            with contextlib.redirect_stdout(io.StringIO()):
+                validate_submission({d: graph})
+            graphs[d] = graph
+        except Exception as exc:
+            failed[d] = f"scShapeBench rejected the graph: {type(exc).__name__}: {exc}"
     Y = {d: np.array([labels[d][c] for c in CLASS_ORDER], dtype=np.float32) for d in graphs}
     extractors = {"graph_stats": graph_stats, "persistence": persistence}
-    probs, fold_of = {m: {} for m in models}, {}
+    probs, missing, fold_of = {m: {} for m in models}, {m: {} for m in models}, {}
     for fold_id, split in enumerate(folds):
         with contextlib.redirect_stdout(io.StringIO()):
             train = filter_split_ids(split["train"], set(graphs), "train")
@@ -136,6 +153,8 @@ def real_label(payloads, labels, models=("rf",), folds=None, device="cpu"):
                 # BatchNorm in training would spread it to the whole batch.
                 fit = [d for d in train if graphs[d].num_nodes > 1]
             if not fit:
+                reason = f"{model.name}: no training graphs in fold {fold_id}"
+                missing[model.name].update(dict.fromkeys(test, reason))
                 continue
             src = model.features_source
             if src and src not in features:
@@ -149,21 +168,24 @@ def real_label(payloads, labels, models=("rf",), folds=None, device="cpu"):
             probs[model.name].update(zip(test, np.asarray(p, dtype=float)))
 
     rows = {}
-    for d, payload in payloads.items():
-        if payload is None or d not in labels or d not in fold_of:
-            reason = ("the action failed" if payload is None else
-                      "no label" if d not in labels else "in no test fold")
-            rows[d] = {"reward": 0.0, "status": "error", "error": reason}
+    for d in payloads:
+        if d in failed or d not in fold_of:
+            rows[d] = {"reward": 0.0, "status": "error", "error": failed.get(d, "in no test fold")}
             continue
         y = Y[d]
         row = {"status": "ok", "model": models[0], "fold": fold_of[d],
                "label": dict(zip(CLASS_ORDER, y.astype(int).tolist()))}
         for m in models:
             p = probs[m].get(d)
-            finite = p is not None and np.isfinite(p).all()
-            row[f"reward_{m}"] = float(np.mean(y * p + (1 - y) * (1 - p))) if finite else 0.0
-            row[f"probs_{m}"] = dict(zip(CLASS_ORDER, p.tolist())) if finite else None
+            if p is not None and np.isfinite(p).all():
+                row[f"reward_{m}"] = float(np.mean(y * p + (1 - y) * (1 - p)))
+                row[f"probs_{m}"] = dict(zip(CLASS_ORDER, p.tolist()))
+            else:
+                row[f"reward_{m}"], row[f"probs_{m}"] = 0.0, None
+                row[f"error_{m}"] = missing[m].get(d, f"{m}: no finite probability")
         rows[d] = {"reward": row[f"reward_{models[0]}"], "probs": row[f"probs_{models[0]}"], **row}
+        if f"error_{models[0]}" in row:
+            rows[d].update(status="error", error=row[f"error_{models[0]}"])
     return rows
 
 
