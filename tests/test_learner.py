@@ -82,3 +82,17 @@ def test_overrides_parse_like_nanogpt():
     assert table.override(config, ["limit=10", "out=y"]) == {"limit": 10, "workers": 4, "out": "y"}
     with pytest.raises(KeyError):
         table.override(config, ["nope=1"])
+
+
+def test_paga_with_no_edge_between_clusters_is_nodes_without_edges():
+    # sc.tl.paga raises when no kNN edge joins two Leiden clusters: one tight
+    # blob, or blobs far apart. The action must return the clusters as nodes.
+    rng = np.random.default_rng(0)
+    one_blob = rng.normal(0, 0.01, (60, 2))
+    three_blobs = np.concatenate([rng.normal(c, 0.01, (60, 2)) for c in (0, 100, 200)])
+
+    single = actions._paga(one_blob, one_blob, {"knn": 30, "resolution": 0.01})
+    separate = actions._paga(three_blobs, three_blobs, {"knn": 30, "resolution": 0.5})
+
+    assert single["nodes"] == [0] and single["edges"] == []
+    assert len(separate["nodes"]) >= 3 and separate["edges"] == []

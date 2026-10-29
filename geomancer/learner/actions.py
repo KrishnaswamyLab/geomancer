@@ -91,8 +91,13 @@ def _paga(coords, points, scale):
     sc.pp.neighbors(adata, n_neighbors=knn, use_rep="X")
     sc.tl.leiden(adata, resolution=scale["resolution"], random_state=SEED, key_added="leiden",
                  flavor="igraph", n_iterations=2, directed=False)
-    sc.tl.paga(adata, groups="leiden")
     labels = adata.obs["leiden"].astype(int).to_numpy()
+    knn_graph = adata.obsp["connectivities"].tocoo()
+    if not (labels[knn_graph.row] != labels[knn_graph.col]).any():
+        # sc.tl.paga raises when no kNN edge joins two clusters (one cluster, or
+        # clusters that are separate components); the answer is nodes, no edges.
+        return _payload(points, labels, [])
+    sc.tl.paga(adata, groups="leiden")
     connectivities = adata.uns["paga"]["connectivities"].tocoo()
     edges = [(int(u), int(v)) for u, v, w in
              zip(connectivities.row, connectivities.col, connectivities.data) if w > 0.0]
