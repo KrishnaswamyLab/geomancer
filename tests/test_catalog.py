@@ -9,13 +9,20 @@ import yaml
 ROOT = Path(str(resources.files("geomancer") / "configs"))
 
 
+# Lab configs beside the deletable examples: the scShapeBench action grid's.
+GRID = {"recipe": {"ssb_embed_pca", "ssb_embed_diffmap", "ssb_embed_phate"}, "dataset": set(),
+        "metrics": set()}
+
+
 @pytest.mark.parametrize("kind", ["recipe", "dataset", "metrics"])
 def test_config_roots_and_examples(kind):
     root = ROOT / kind
     assert root.is_dir(), f"{kind} config root moved"
     paths = list(root.glob("*.yaml"))
-    assert len(paths) == 1
-    assert "DELETABLE EXAMPLE" in paths[0].read_text()
+    examples = [p for p in paths if p.stem not in GRID[kind]]
+    assert {p.stem for p in paths} - {p.stem for p in examples} == GRID[kind]
+    assert len(examples) == 1
+    assert "DELETABLE EXAMPLE" in examples[0].read_text()
 
 
 def test_tool_directory_intentionally_omitted():

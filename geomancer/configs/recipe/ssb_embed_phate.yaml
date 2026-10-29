@@ -1,0 +1,15 @@
+# One embedding of the scShapeBench action grid: PHATE at manylatents' defaults,
+# in 2 dimensions. The grid's graph runs branch from this run's embedding.
+# n_components is capped by the data, because synthetic samples have 2 to 5 dimensions.
+name: ssb_embed_phate
+id: ssb.embed.phate
+source:
+  kind: none
+  note: "The embedding arm of the scShapeBench action grid (geomancer.learner); manylatents defaults."
+question: "Embed one scShapeBench sample in 2 dimensions with PHATE"
+suits: []
+steps:
+  - name: phate
+    group: latent
+    params: {n_components: 2}
+    limits: {n_components: [n_samples, n_features]}
