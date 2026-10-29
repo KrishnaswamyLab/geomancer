@@ -67,4 +67,5 @@ testpaths = ["tests"]
 markers = [
     "source_checkout: requires repository files or the Git index, omitted from sdist",
     "network: requires a generated uv.lock and network access",
+    "real_revision: keeps the real geomancer revision (no clean-commit stand-in)",
 ]

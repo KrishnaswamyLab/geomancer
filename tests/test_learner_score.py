@@ -24,6 +24,21 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "geomancer" / "configs" / "tool"
 COMMIT = "c0ffee" * 6 + "c0ff"
 CLASSES = ["archetypal", "multi_branch", "simple_traj", "clusters"]
+ACTIONS_SHA = provenance.sha256_file(actions.__file__)
+ENGINES = {"manylatents-omics": {"version": "0.1.3", "commit": "61c6a637", "editable": False}}
+
+
+@pytest.fixture(autouse=True)
+def clean_revision(request, monkeypatch):
+    """The fixture ledgers come from a clean COMMIT; so do the manifests written here.
+
+    The checkout under test may be dirty, and table.py refuses dirty inputs. A test
+    marked ``real_revision`` runs the real driver and adapters, so it keeps the
+    real revision and passes allow_dirty.
+    """
+    if request.node.get_closest_marker("real_revision") is None:
+        monkeypatch.setattr(provenance, "geomancer_revision",
+                            lambda: {"commit": COMMIT, "dirty": False, "source": "test"})
 
 
 # ── fixtures: a scShapeBench root, convert.py's manifest, driver-shaped rows ──
@@ -72,7 +87,15 @@ def _append(grid, row, geo, ledger="synthetic-000of001"):
 def _geo(kind, sample, seed, points_sha256, source="synthetic", **fields):
     return {"kind": kind, "source": source, "sample": sample, "seed": seed,
             "points_sha256": points_sha256, "geomancer_revision": {"commit": COMMIT, "dirty": False},
+            "engine_revisions": ENGINES, "actions_sha256": ACTIONS_SHA,
             "caller": "geomancer.learner.drive", "caller_version": "0.1.0", **fields}
+
+
+def _tool_vector(tool):
+    # What the adapter and manyruns add: the adapter's own revision and the locked env.
+    return {f"{tool}.geomancer_revision": COMMIT, f"{tool}.geomancer_dirty": False,
+            f"{tool}.tool_reproducible": True, f"{tool}.tool_lock": "0f8ccf84c086b28d",
+            **({f"{tool}.actions_sha256": ACTIONS_SHA} if tool == "ssb_graph" else {})}
 
 
 def _graph(grid, run_id, sample, seed, action, payload, points_sha256, input_sha256,
@@ -91,7 +114,8 @@ def _graph(grid, run_id, sample, seed, action, payload, points_sha256, input_sha
         path.write_bytes(data)
         graph = {"path": f"graphs/{run_id}.json", "sha256": _sha(data)}
         g_vector = {"ssb_graph.graph_sha256": _sha(data), "ssb_graph.sample": sample,
-                    "ssb_graph.points_sha256": points_sha256, "ssb_graph.input_sha256": input_sha256}
+                    "ssb_graph.points_sha256": points_sha256, "ssb_graph.input_sha256": input_sha256,
+                    **_tool_vector("ssb_graph")}
     g_vector.update(extra.pop("g_vector", {}))
     row = {"run_id": run_id, "ok": ok, "complete": ok, "dataset_name": extra.pop("dataset_name", sample),
            "seed": seed, "parent": parent, "at": at, "g_vector": g_vector}
@@ -118,14 +142,16 @@ def _embedding(grid, run_id, sample, seed, name, emb, points_sha256, ok=True):
     return path
 
 
-def _state(grid, run_id, sample, points, points_sha256, source="synthetic"):
-    g_vector = {"ssb_state.sample": sample}
+def _state(grid, run_id, sample, points, points_sha256, source="synthetic", g_vector=None):
+    vector = {"ssb_state.sample": sample, "ssb_state.points_sha256": points_sha256,
+              **_tool_vector("ssb_state")}
     for name, fn in state.STATES.items():
-        vector = fn(points)
-        g_vector[f"ssb_state.{name}_dim"] = int(vector.size)
-        g_vector.update({f"ssb_state.{name}_{i}": float(v) for i, v in enumerate(vector)})
+        values = fn(points)
+        vector[f"ssb_state.{name}_dim"] = int(values.size)
+        vector.update({f"ssb_state.{name}_{i}": float(v) for i, v in enumerate(values)})
+    vector.update(g_vector or {})
     row = {"run_id": run_id, "ok": True, "complete": True, "dataset_name": sample, "seed": 0,
-           "parent": None, "at": "2026-10-29T00:00:00+00:00", "g_vector": g_vector}
+           "parent": None, "at": "2026-10-29T00:00:00+00:00", "g_vector": vector}
     geo = _geo("state", sample, 0, points_sha256, source=source, action="state", status="ok",
                detail=None)
     if source == "real":
@@ -152,14 +178,15 @@ def _adapter(tmp_path, name, points_path, extractor, scale):
     X = np.load(points_path)
     np.save(work / "input.npy", X)
     request = {"tool": "ssb_graph", "version": "0.1.0", "seed": 0,
-               "params": {"extractor": extractor, "scale": scale, "points": str(points_path),
+               "params": {"extractor": extractor, "scale": scale, "sample": name,
                           "points_sha256": provenance.sha256_file(points_path)},
                "input": str(work / "input.npy"), "output": str(work / "output.h5ad"),
                "result": str(work / "result.json"), "workdir": str(work)}
     (work / "request.json").write_text(json.dumps(request))
     proc = subprocess.run([sys.executable, str(TOOLS / "ssb_graph.py"), str(work / "request.json")],
                           capture_output=True, text=True,
-                          env={**os.environ, "GEOMANCER_SRC": str(ROOT)})
+                          env={**os.environ, "GEOMANCER_SRC": str(ROOT),
+                               "GEOMANCER_GRID_INPUTS": str(points_path.parent)})
     assert proc.returncode == 0, proc.stderr
     result = json.loads((work / "result.json").read_text())
     assert result["ok"], result
@@ -179,9 +206,13 @@ def test_adapter_parity_raw(tmp_path):
         extractor, scale = action.split("+")[1].split("@")
         work, scalars = _adapter(tmp_path, name, inputs / entry["npy"], extractor, scale)
         data = (work / "graph.json").read_bytes()
+        # The adapter ran here, from the real checkout: the driver's record says the same.
         _graph(grid, f"run{i}", name, 0, action, json.loads(data), entry["npy_sha256"],
                scalars["input_sha256"], data=data,
-               g_vector={f"ssb_graph.{k}": v for k, v in scalars.items()})
+               geomancer_revision={"commit": scalars["geomancer_revision"],
+                                   "dirty": scalars["geomancer_dirty"]},
+               g_vector={**{f"ssb_graph.{k}": v for k, v in scalars.items()},
+                         "ssb_graph.tool_reproducible": True})
 
     scores, meta = score.score_synthetic(grid, inputs)
 
@@ -193,7 +224,11 @@ def test_adapter_parity_raw(tmp_path):
         expected = rewards.synthetic_graph(
             actions.graph(extractor, scale, sample["points"], sample["points"]), sample)
         assert s["status"] == "ok", s
-        assert {k: s[k] for k in expected} == expected
+        # The graph edit distance depends on a search timeout (rewards.GED_TIMEOUT_S),
+        # so it is a diagnostic: every other score must match exactly.
+        stable = {k: v for k, v in expected.items() if not k.startswith("graph_edit_distance")}
+        assert {k: s[k] for k in stable} == stable
+        assert s["graph_edit_distance_reproducible"] is False
     assert meta["run_ids"] == ["run0", "run1", "run2"]
 
 
@@ -284,11 +319,15 @@ def test_a_graph_that_does_not_hash_to_its_row_is_refused(tmp_path):
     assert by["g_ok"]["status"] == "graph_sha256_mismatch" and by["g_ok"]["reward"] is None
 
 
+FIXTURE_ACTIONS = ("pca+paga@default,raw+paga@default,pca+paga@fine,pca+mapper@default,"
+                   "raw+mapper@default,diffmap+paga@default")
+
+
 def test_table_cells_cite_rows(tmp_path):
     grid, inputs, _ = _synthetic_grid(tmp_path)
     score.write(grid, "synthetic", *score.score_synthetic(grid, inputs))
 
-    tables = table.build(grid, "synthetic")
+    tables = table.build(grid, "synthetic", actions=FIXTURE_ACTIONS, samples="sample_00000")
 
     assert [p.name for p in tables] == ["seed0"]
     out = tables[0]
@@ -304,8 +343,14 @@ def test_table_cells_cite_rows(tmp_path):
     assert cfg["provenance"]["scores"]["sha256"] == provenance.sha256_file(grid / "scores" / "synthetic.jsonl")
     assert set(cfg["provenance"]["ledgers"]) == {"ledgers/synthetic-000of001/index.jsonl"}
     assert cfg["provenance"]["geomancer_commits"] == [COMMIT]
+    assert cfg["provenance"]["geomancer_revisions"] == [[COMMIT, False]]
+    assert cfg["provenance"]["inputs"]["manifest_sha256"] == provenance.sha256_file(inputs / "manifest.json")
+    assert cfg["provenance"]["tools"]["ssb_graph.tool_reproducible"] == [True]
+    assert cfg["missing"] == [] and cfg["n_expected"] == 6 and cfg["attempts"] == {"1": 6}
     loaded = train.load_table(out, "input_geometry")
-    assert loaded["R"].shape == (1, len(cfg["actions"])) and loaded["excluded"] == []
+    # The four cells without a reward are masked, and the actions with none are left out.
+    assert loaded["R"].shape == (1, 2) and loaded["excluded"] == []
+    assert sorted(loaded["dropped_actions"]) == sorted(set(FIXTURE_ACTIONS.split(",")) - set(loaded["actions"]))
 
 
 def test_table_refuses_scores_older_than_the_ledger(tmp_path):
@@ -333,13 +378,13 @@ def test_a_retried_cell_supersedes_its_failed_row_and_seeds_get_their_own_tables
     _graph(grid, "seed1", "sample_00002", 1, "raw+paga@default", payload, sha, sha)
     score.write(grid, "synthetic", *score.score_synthetic(grid, inputs))
 
-    tables = table.build(grid, "synthetic")
+    tables = table.build(grid, "synthetic", actions="raw+paga@default", samples="sample_00002")
 
     assert [p.name for p in tables] == ["seed0", "seed1"]
     seed0 = _read(tables[0] / "rewards.jsonl")
     assert [r["run_id"] for r in seed0] == ["retry"] and seed0[0]["status"] == "ok"
     cfg = json.loads((tables[0] / "config.json").read_text())
-    assert cfg["superseded"] == ["first"]
+    assert cfg["superseded"] == ["first"] and cfg["attempts"] == {"2": 1}
     # No state run for this sample: the states row says so, and train leaves it out.
     assert _read(tables[0] / "states.jsonl") == [
         {"sample": "sample_00002", "run_id": None, "error": "no ok state run"}]
@@ -357,9 +402,121 @@ def test_table_refuses_rows_from_two_geomancer_commits(tmp_path):
            geomancer_revision={"commit": "other", "dirty": False})
     score.write(grid, "synthetic", *score.score_synthetic(grid, inputs))
 
+    kwargs = {"actions": "raw+paga@default,raw+paga@fine", "samples": "sample_00000"}
     with pytest.raises(ValueError, match="commits"):
-        table.build(grid, "synthetic")
-    assert table.build(grid, "synthetic", allow_mixed_commits=True)
+        table.build(grid, "synthetic", **kwargs)
+    assert table.build(grid, "synthetic", allow_mixed_commits=True, **kwargs)
+
+
+def test_a_row_whose_adapter_names_another_commit_is_not_scored(tmp_path):
+    grid, inputs, _ = _synthetic_grid(tmp_path)
+    sha = json.loads((inputs / "manifest.json").read_text())["samples"]["sample_00000"]["npy_sha256"]
+    X = np.load(inputs / "sample_00000.npy")
+    _graph(grid, "g_other_code", "sample_00000", 0, "raw+mapper@fine", actions.graph("mapper", "fine", X, X),
+           sha, sha, g_vector={"ssb_graph.geomancer_revision": "deadbeef"})
+
+    scores, _ = score.score_synthetic(grid, inputs)
+
+    s = next(s for s in scores if s["run_id"] == "g_other_code")
+    assert s["status"] == "revision_disagrees" and "deadbeef" in s["detail"] and s["reward"] is None
+
+
+def test_an_unlocked_tool_env_is_not_scored_unless_allowed(tmp_path):
+    grid, inputs, _ = _synthetic_grid(tmp_path)
+    sha = json.loads((inputs / "manifest.json").read_text())["samples"]["sample_00000"]["npy_sha256"]
+    X = np.load(inputs / "sample_00000.npy")
+    _graph(grid, "g_override", "sample_00000", 0, "raw+paga@fine", actions.graph("paga", "fine", X, X),
+           sha, sha, g_vector={"ssb_graph.tool_reproducible": False})
+
+    strict = {s["run_id"]: s for s in score.score_synthetic(grid, inputs)[0]}
+    allowed = {s["run_id"]: s for s in score.score_synthetic(grid, inputs, allow_unreproducible=True)[0]}
+
+    assert strict["g_override"]["status"] == "tool_not_reproducible"
+    assert allowed["g_override"]["status"] == "ok"
+
+
+def test_a_copied_grid_checks_its_own_embedding_files(tmp_path):
+    import shutil
+
+    grid, inputs, _ = _synthetic_grid(tmp_path)
+    copy = tmp_path / "fetched"
+    shutil.copytree(grid, copy)
+    shutil.rmtree(grid)
+
+    by = {s["run_id"]: s for s in score.score_synthetic(copy, inputs)[0]}
+
+    assert by["g_ok"]["status"] == "ok"
+
+
+def _table_grid(tmp_path):
+    """sample_00000 and sample_00001 scored on one raw action; sample_00002 failed conversion."""
+    root, inputs, manifest = _synthetic_root(tmp_path)
+    (root / "data" / "synthetic" / "sample_00002.npz").write_bytes(b"not an npz")
+    manifest = convert.convert_synthetic(root, tmp_path / "inputs")
+    grid = tmp_path / "grid"
+    for name in ("sample_00000", "sample_00001"):
+        sha = manifest["samples"][name]["npy_sha256"]
+        X = np.load(inputs / f"{name}.npy")
+        _graph(grid, f"g-{name}", name, 0, "raw+paga@default", actions.graph("paga", "default", X, X), sha, sha)
+        _state(grid, f"st-{name}", name, X, sha)
+    return grid, inputs
+
+
+def test_the_table_counts_samples_that_failed_conversion_or_have_no_row(tmp_path):
+    grid, inputs = _table_grid(tmp_path)
+    score.write(grid, "synthetic", *score.score_synthetic(grid, inputs))
+
+    out = table.build(grid, "synthetic", actions="raw+paga@default,raw+mapper@default")[0]
+
+    cfg = json.loads((out / "config.json").read_text())
+    assert cfg["samples"] == ["sample_00000", "sample_00001", "sample_00002"]
+    assert cfg["n_expected"] == 6 and cfg["n_cells"] == 2
+    assert cfg["missing"] == [["sample_00000", "raw+mapper@default"], ["sample_00001", "raw+mapper@default"]]
+    assert cfg["not_converted"]["sample_00002"]["status"] == "error"
+    assert "sample_00002" in cfg["states_excluded"]
+    # Cells with no row refuse the training table until the grid is complete.
+    with pytest.raises(ValueError, match="no row"):
+        train.load_table(out, "input_geometry")
+
+
+def test_the_table_refuses_rows_from_a_dirty_tree_unless_allowed(tmp_path):
+    grid, inputs = _table_grid(tmp_path)
+    sha = json.loads((inputs / "manifest.json").read_text())["samples"]["sample_00000"]["npy_sha256"]
+    X = np.load(inputs / "sample_00000.npy")
+    _graph(grid, "dirty", "sample_00000", 0, "raw+mapper@default", actions.graph("mapper", "default", X, X),
+           sha, sha, geomancer_revision={"commit": COMMIT, "dirty": True},
+           g_vector={"ssb_graph.geomancer_dirty": True})
+    score.write(grid, "synthetic", *score.score_synthetic(grid, inputs))
+    kwargs = {"actions": "raw+paga@default,raw+mapper@default", "samples": "sample_00000,sample_00001"}
+
+    with pytest.raises(ValueError, match="dirty=True"):
+        table.build(grid, "synthetic", **kwargs)
+    out = table.build(grid, "synthetic", allow_dirty=True, **kwargs)[0]
+    revisions = json.loads((out / "config.json").read_text())["provenance"]["geomancer_revisions"]
+    assert sorted(map(tuple, revisions)) == [(COMMIT, False), (COMMIT, True)]
+
+
+def test_the_table_refuses_scores_whose_ledgers_have_changed(tmp_path):
+    grid, inputs = _table_grid(tmp_path)
+    score.write(grid, "synthetic", *score.score_synthetic(grid, inputs))
+    _append(grid, {"run_id": "emb-late", "ok": True, "complete": True},
+            _geo("embedding", "sample_00000", 0, "0" * 64, embedding="pca"))
+
+    with pytest.raises(ValueError, match="rerun score"):
+        table.build(grid, "synthetic", actions="raw+paga@default")
+
+
+def test_a_state_run_from_an_unlocked_env_is_an_error_row(tmp_path):
+    grid, inputs = _table_grid(tmp_path)
+    sha = json.loads((inputs / "manifest.json").read_text())["samples"]["sample_00001"]["npy_sha256"]
+    X = np.load(inputs / "sample_00001.npy")
+    _state(grid, "st-override", "sample_00001", X, sha, g_vector={"ssb_state.tool_reproducible": False})
+    score.write(grid, "synthetic", *score.score_synthetic(grid, inputs))
+
+    out = table.build(grid, "synthetic", actions="raw+paga@default")[0]
+
+    states = {r["sample"]: r for r in _read(out / "states.jsonl")}
+    assert "tool_not_reproducible" in states["sample_00001"]["error"]
 
 
 # ── real: a cross-dataset reduction per (action, seed), with nested folds ─────
@@ -376,6 +533,15 @@ def _graph_payload(kind, n, rng, dim=3):
     positions = rng.normal(size=(n, dim))
     return {"graph_representation": "simple_graph", "nodes": list(range(n)), "edges": edges,
             "node_positions": {str(i): p.tolist() for i, p in enumerate(positions)}}
+
+
+def _real_inputs(folder, ids):
+    """convert.py's real manifest for ``ids``; the points sha256 is the one _real_grid uses."""
+    folder.mkdir(parents=True, exist_ok=True)
+    samples = {d: {"status": "ok", "npy": f"{d}.npy", "npy_sha256": _sha(d.encode())} for d in ids}
+    (folder / "manifest.json").write_text(json.dumps(
+        {"kind": "real", "samples": samples, "code_revision": {"commit": COMMIT, "dirty": False}}))
+    return folder
 
 
 def _real_grid(grid, labels_flip=None, n=30):
@@ -415,10 +581,11 @@ def test_policy_training_rewards_never_see_the_labels_of_the_outer_test_fold(tmp
     flipped = {**labels, d: {c: 1 - v for c, v in labels[d].items()}}
 
     outs = []
+    inputs = _real_inputs(tmp_path / "inputs", ids)
     for name, lab in (("before", labels), ("after", flipped)):
         grid = tmp_path / "grid"
-        score.write(grid, "real", *score.score_real(grid, lab, folds=folds, models=("rf",)))
-        outs.append(table.build(grid, "real", out=tmp_path / name)[0])
+        score.write(grid, "real", *score.score_real(grid, lab, folds=folds, models=("rf",), inputs=inputs))
+        outs.append(table.build(grid, "real", out=tmp_path / name, actions="raw+paga@default")[0])
     before, after = outs
 
     nested = {k: _read(k / "rewards_nested.jsonl") for k in (before, after)}
@@ -434,6 +601,10 @@ def test_policy_training_rewards_never_see_the_labels_of_the_outer_test_fold(tmp
     loaded = train.load_table(before, "none")
     assert [list(np.array(loaded["samples"])[f]) for f in loaded["folds"]] == [f["test"] for f in folds]
     assert loaded["R_fit"].shape == (5, 30, 1)
+    # Each nested row names the folds_v1 fold its dataset is tested in, not its position
+    # in the shortened list of folds the nested classifier was fit on.
+    fold_of = {s: k for k, f in enumerate(folds) for s in f["test"]}
+    assert all(r["fold"] == fold_of[r["sample"]] for r in nested[before])
 
 
 def test_a_failed_real_cell_leaves_training_and_keeps_its_status(tmp_path):
@@ -452,6 +623,7 @@ def test_a_failed_real_cell_leaves_training_and_keeps_its_status(tmp_path):
 
 # ── the whole chain on the manylatents engine ─────────────────────────────────
 
+@pytest.mark.real_revision
 @pytest.mark.skipif(not __import__("importlib").util.find_spec("manylatents"),
                     reason="needs the learner extra")
 def test_drive_score_table_train_end_to_end(tmp_path, monkeypatch):
@@ -467,13 +639,18 @@ def test_drive_score_table_train_end_to_end(tmp_path, monkeypatch):
     try:
         root, inputs, _ = _synthetic_root(tmp_path)
         grid = tmp_path / "grid"
+        # The test interpreter stands in for the locked tool envs, and the checkout may
+        # be dirty: each step is told so explicitly.
         drive.run({**drive.config, "inputs": str(inputs), "out": str(grid), "seeds": [0],
-                   "samples": "sample_00000,sample_00001", "actions": "raw+paga@default"})
+                   "samples": "sample_00000,sample_00001", "actions": "raw+paga@default",
+                   "allow_tool_override": True, "allow_dirty": True})
     finally:
         app._cleanup()
 
-    assert score.main([f"grid={grid}", "source=synthetic", f"inputs={inputs}"]) == 0
-    table.main([f"grid={grid}", "source=synthetic"])
+    assert score.main([f"grid={grid}", "source=synthetic", f"inputs={inputs}",
+                       "allow_unreproducible=true"]) == 0
+    table.main([f"grid={grid}", "source=synthetic", "actions=raw+paga@default",
+                "samples=sample_00000,sample_00001", "allow_dirty=true", "allow_unreproducible=true"])
     out = grid / "tables" / "synthetic" / "seed0"
     train.main([f"table={out}", "seeds=1", "folds=2", "policies=best_fixed,oracle"])
 

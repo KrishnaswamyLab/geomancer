@@ -20,11 +20,22 @@ import numpy as np
 FOLDS = Path(__file__).with_name("folds_v1.json")
 
 
+# scShapeBench computes the graph edit distance with nx.graph_edit_distance(timeout=0.5)
+# (synthetic/evaluation.py at d81963f). When the timeout cuts the search, networkx
+# returns the best cost found so far, and scShapeBench still says exact (it says not
+# exact only when networkx returns None). So the distance depends on the time budget and
+# the machine load (measured: 141 vs 139 on one graph), and it is a diagnostic only.
+GED_TIMEOUT_S = 0.5
+
+
 def synthetic_graph(pred, sample):
     """scShapeBench's full-graph-recovery evaluator; reward = its primary metric.
 
     The primary metric is the relaxed topology score. Persistence similarity and
-    graph edit distance are kept alongside it.
+    graph edit distance are kept alongside it. The graph edit distance does not
+    reproduce (see GED_TIMEOUT_S): ``graph_edit_distance_exact`` is scShapeBench's
+    claim, ``graph_edit_distance_reproducible`` is False, and the timeout is recorded.
+    It must not be cited as a result.
     """
     # The evaluator filters sys.path entries for other Python versions and sets
     # PYTHONNOUSERSITE when it is imported; import it only when scoring.
@@ -49,6 +60,8 @@ def synthetic_graph(pred, sample):
         **headline,
         "graph_edit_distance": result["graph_edit_distance"],
         "graph_edit_distance_exact": result["graph_edit_distance_exact"],
+        "graph_edit_distance_timeout_s": GED_TIMEOUT_S,
+        "graph_edit_distance_reproducible": False,
     }
 
 
@@ -92,7 +105,7 @@ def folds_v1():
     return load_folds(FOLDS)
 
 
-def real_label(payloads, labels, models=("rf",), folds=None, device="cpu"):
+def real_label(payloads, labels, models=("rf",), folds=None, device="cpu", fold_ids=None):
     """Out-of-fold probability that scShapeBench's fixed classifier gives each dataset its labels.
 
     ``payloads`` maps a dataset id to one action's graph, or None when the action
@@ -107,6 +120,10 @@ def real_label(payloads, labels, models=("rf",), folds=None, device="cpu"):
     A model with no finite probability for a dataset gets reward 0 and
     ``error_<name>``; for the first model the row is then an error. Returns one row
     per dataset in ``payloads``.
+
+    ``fold_ids`` are the benchmark ids of ``folds`` (default 0, 1, ...). A nested
+    reduction passes a subset of folds_v1, so each row's ``fold`` and each model's
+    seed (10_000 + fold id * 100 + model index) must be the original fold's.
     """
     import torch
     from scshapebench.datasets.labels import CLASS_ORDER
@@ -137,7 +154,10 @@ def real_label(payloads, labels, models=("rf",), folds=None, device="cpu"):
     Y = {d: np.array([labels[d][c] for c in CLASS_ORDER], dtype=np.float32) for d in graphs}
     extractors = {"graph_stats": graph_stats, "persistence": persistence}
     probs, missing, fold_of = {m: {} for m in models}, {m: {} for m in models}, {}
-    for fold_id, split in enumerate(folds):
+    fold_ids = list(range(len(folds))) if fold_ids is None else list(fold_ids)
+    if len(fold_ids) != len(folds):
+        raise ValueError(f"{len(fold_ids)} fold ids for {len(folds)} folds")
+    for fold_id, split in zip(fold_ids, folds):
         with contextlib.redirect_stdout(io.StringIO()):
             train = filter_split_ids(split["train"], set(graphs), "train")
             test = filter_split_ids(split["test"], set(graphs), "test")
