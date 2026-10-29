@@ -60,3 +60,35 @@ def versions(names):
         except metadata.PackageNotFoundError:
             out[name] = None
     return out
+
+
+# What every lab tool reports about the code and environment it ran in.
+TOOL_VERSIONS = ("numpy", "scipy", "scikit-learn", "anndata", "scanpy", "kmapper", "python-igraph")
+
+
+def verified_points(path, sha256):
+    """The array at ``path``, after its bytes are checked against ``sha256``."""
+    import numpy as np
+
+    actual = sha256_file(path)
+    if actual != sha256:
+        raise ValueError(f"points {Path(path).name} has sha256 {actual}, not the {sha256} the run names")
+    return np.load(path, allow_pickle=False)
+
+
+def tool_scalars(adapter):
+    """The provenance scalars a lab tool adds to its result.
+
+    ``caller`` and ``caller_version`` come from ``GEOMANCER_CALLER`` and
+    ``GEOMANCER_CALLER_VERSION``, which the tool inherits from the process that runs
+    manyruns (manyruns starts the adapter without its own ``env=``).
+    """
+    revision = geomancer_revision()
+    return {
+        "adapter_sha256": sha256_file(adapter),
+        "caller": os.environ.get("GEOMANCER_CALLER"),
+        "caller_version": os.environ.get("GEOMANCER_CALLER_VERSION"),
+        "geomancer_revision": revision["commit"],
+        "geomancer_dirty": revision["dirty"],
+        **{f"version_{name.replace('-', '_')}": v for name, v in versions(TOOL_VERSIONS).items()},
+    }

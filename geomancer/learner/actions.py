@@ -162,11 +162,21 @@ def embed(name, points):
     return _CACHE[key]
 
 
-def _action(embedding, graph, scale, points):
+def graph(extractor, scale, coords, points):
+    """The `extractor` graph at `scale`, built on `coords`, with nodes placed in `points`.
+
+    This is the one entry point for graph extraction: the actions below and the
+    ssb_graph lab tool (geomancer/configs/tool/ssb_graph.py) both call it.
+    """
     points = np.asarray(points, dtype=float)
-    payload = GRAPHS[graph](embed(embedding, points), points, SCALES[scale])
+    payload = GRAPHS[extractor](np.asarray(coords, dtype=float), points, SCALES[scale])
     payload["edges"] = [list(edge) for edge in payload["edges"]]
     return payload
+
+
+def _action(embedding, extractor, scale, points):
+    points = np.asarray(points, dtype=float)
+    return graph(extractor, scale, embed(embedding, points), points)
 
 
 ACTIONS = {

@@ -37,10 +37,16 @@ has configured the directories. The CLI still uses the bundled `default` suite;
 a uniquely named suite does not replace it. v0.1.0's `check` covers recipes and
 datasets; the tests validate metrics with `catalog.check_suite` and `check_ranges`.
 
-There is no lab tool example in G-1: it requires manyruns 0.1.1. The empty lab
-`configs/tool/` directory is omitted because Git does not track empty directories.
-Bundled manyruns tools remain available; `tools check` in 0.1.0 reports missing
-locks or environments without failing, so it does not prove a tool can run.
+The lab tools `ssb_graph` and `ssb_state` (`configs/tool/`) run on manyruns
+0.1.0. They are the scShapeBench action grid's graph extraction and context
+vectors; their adapters import `geomancer.learner`, from `$GEOMANCER_SRC` when it
+is set. Each has a hashed lock per platform in `configs/tool/locks/`, compiled by
+`python -m geomancer.learner.lock tool=<name>` with versions held to `uv.lock`.
+`geomancer tools install <name>` builds the locked environment, and a run in it
+records `<name>.tool_reproducible: true`. The lock pins the third-party packages
+only; each result names the geomancer code by `geomancer_revision` and the
+sha256 of the module it used. `tools check` in 0.1.0 reports missing locks or
+environments without failing, so it does not prove a tool can run.
 
 The wrapper reads only the working directory's `.env`, then sets
 `MANYRUNS_RECIPE_DIR`, `MANYRUNS_DATASET_DIR`, `MANYRUNS_METRICS_DIR`, and

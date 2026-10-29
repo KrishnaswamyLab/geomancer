@@ -25,8 +25,14 @@ def test_config_roots_and_examples(kind):
     assert "DELETABLE EXAMPLE" in examples[0].read_text()
 
 
-def test_tool_directory_intentionally_omitted():
-    assert not (ROOT / "tool").exists(), "G-1 has no lab tool; enable it with G-2"
+def test_lab_tools_have_their_adapter_and_a_lock_per_platform():
+    root = ROOT / "tool"
+    assert {p.stem for p in root.glob("*.yaml")} == {"ssb_graph", "ssb_state"}
+    for name in ("ssb_graph", "ssb_state"):
+        cfg = yaml.safe_load((root / f"{name}.yaml").read_text())
+        assert (root / cfg["entrypoint"]).is_file()
+        for tag in ("macos-arm64", "linux-x86_64"):
+            assert (root / "locks" / toolchain.lock_name(cfg, tag)).is_file()
 
 
 def test_every_config_validates_and_no_lab_file_shadows_bundled_names():
