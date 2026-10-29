@@ -11,6 +11,10 @@
 # against the sha256 of every ledger under the grid: a real array that appends while
 # the synthetic table is built would otherwise invalidate the synthetic scores.
 
+# A shell from ssh or from Slurm does not read ~/.bashrc, so name uv's home and keep its cache
+# on scratch (the home quota is small) here rather than relying on the login profile.
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-$SCRATCH/.cache/uv}"
 : "${GEOMANCER_GIT_SHA:?pass --export=ALL,GEOMANCER_GIT_SHA=<full sha> (the commit jobs/ssb_grid_prepare.sh built)}"
 SRC="$SCRATCH/geomancer-grid-$GEOMANCER_GIT_SHA"
 GRID_ROOT="${GEOMANCER_GRID_ROOT:-$SCRATCH/geomancer/outputs/grid/${GEOMANCER_GIT_SHA:0:12}}"

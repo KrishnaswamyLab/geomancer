@@ -37,6 +37,10 @@ fi
 mkdir -p "$REPO/outputs/slurm"
 
 cd "$SRC"
+# A shell from ssh or from Slurm does not read ~/.bashrc, so name uv's home and keep its cache
+# on scratch (the home quota is small) here rather than relying on the login profile.
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-$SCRATCH/.cache/uv}"
 uv sync --locked --extra learner
 # A tool env lives in ~/.cache/manyruns/tools/<tool>/<lock digest>, shared by every
 # checkout whose lock is the same, and `tools install` refuses to rebuild one that
