@@ -205,11 +205,17 @@ def _names(value, known):
 
 
 def plan(samples, seeds, names, state=True):
-    """One dict per cell: every action per (sample, seed), plus one state cell per sample."""
+    """One dict per cell: every action per (sample, seed), plus one state cell per sample.
+
+    A seedless action (`actions.seedless`, the raw routes) is planned for the first seed only:
+    it gives the same graph for every seed, so table.py reuses that one run in every seed's
+    table rather than this repeating it."""
     cells = []
     for sample in samples:
         for seed in seeds:
             for name in names:
+                if actions_module.seedless(name) and seed != seeds[0]:
+                    continue
                 embedding, rest = name.split("+")
                 extractor, scale = rest.split("@")
                 cells.append({"kind": "graph", "sample": sample, "seed": seed, "action": name,

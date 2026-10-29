@@ -87,11 +87,21 @@ def test_plan_is_every_action_per_seed_plus_one_state_cell_per_sample():
     cells = drive.plan(["a", "b"], seeds=[0, 1, 2], names=sorted(actions.ACTIONS))
 
     graph = [c for c in cells if c["kind"] == "graph"]
-    assert len(graph) == 2 * 3 * 24
+    assert len(graph) == 2 * (6 + 18 * 3)  # raw routes once per sample
     assert len({(c["sample"], c["seed"], c["action"]) for c in graph}) == len(graph)
     assert [c["sample"] for c in cells if c["kind"] == "state"] == ["a", "b"]
     pca = next(c for c in graph if c["action"] == "pca+mapper@fine")
     assert (pca["embedding"], pca["extractor"], pca["scale"]) == ("pca", "mapper", "fine")
+
+
+def test_the_raw_routes_are_planned_once_per_sample_because_they_ignore_the_seed():
+    from geomancer.learner import drive
+
+    cells = drive.plan(["a"], seeds=[0, 1, 2], names=sorted(actions.ACTIONS))
+    raw = [c for c in cells if c["kind"] == "graph" and c["embedding"] == "raw"]
+    assert len(raw) == 6 and {c["seed"] for c in raw} == {0}
+    assert sum(c["kind"] == "graph" for c in cells) == 6 + 18 * 3
+    assert actions.seedless("raw+paga@fine") and not actions.seedless("pca+paga@fine")
 
 
 def test_units_group_an_embedding_with_its_six_graph_cells():

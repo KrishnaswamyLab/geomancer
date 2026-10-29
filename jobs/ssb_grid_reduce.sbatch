@@ -31,7 +31,9 @@ source "$SCRATCH/geomancer-grid-$GEOMANCER_GIT_SHA/jobs/ssb_grid_env.sh"
 SOURCE="${GEOMANCER_GRID_SOURCE:?set GEOMANCER_GRID_SOURCE to synthetic or real}"
 OUT="$GRID_ROOT/$SOURCE"
 
-# The classifiers of the old real table; synthetic scoring takes no classifier.
+# Real reward: rf is the headline (the first classifier gives `reward`); stats_svm and gnn
+# are recorded beside it as a robustness check (decided 2026-10-29). Synthetic scoring takes
+# no classifier.
 classifiers=rf
 if [ "$SOURCE" = real ]; then classifiers=rf,stats_svm,gnn; fi
 run geomancer.learner.score grid="$OUT" source="$SOURCE" inputs="$INPUTS/$SOURCE" \

@@ -141,14 +141,18 @@ def test_a_cell_with_no_row_refuses_the_table_unless_allowed(tmp_path):
     assert train.load_table(path, "input_geometry", allow_missing=True)["masked"]["missing"] == 1
 
 
-def test_a_choice_whose_cell_has_no_reward_is_counted_and_not_averaged_as_zero():
+def test_a_choice_whose_cell_has_no_reward_scores_zero_and_is_counted():
+    """Decided 2026-10-29: picking a route that gave no graph costs what no graph is worth,
+    0, at evaluation. Fitting still uses observed cells only."""
     cfg = dict(train.config)
     R = np.array([[np.nan, 0.5], [0.4, 0.8]])
 
     metrics = train.score(np.array([0, 1]), None, R, cfg)
 
     assert metrics["unobserved_rate"] == 0.5
-    assert metrics["reward"] == pytest.approx(0.8) and metrics["regret"] == pytest.approx(0.0)
+    assert metrics["reward"] == pytest.approx(0.4)  # (0 + 0.8) / 2
+    assert metrics["regret"] == pytest.approx(0.25)  # (0.5 - 0 + 0.8 - 0.8) / 2
+    assert metrics["silent_failure_rate"] == 0.0  # a route with no graph failed visibly
 
 
 def test_policies_fit_on_observed_cells_only(tmp_path):

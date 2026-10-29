@@ -223,8 +223,21 @@ def build(grid, source, scores=None, out=None, allow_mixed_commits=False, action
         folder = out / f"seed{seed}"
         folder.mkdir(parents=True, exist_ok=True)
         mine = {k: r for k, r in chosen.items() if k[1] == seed}
-        reward_rows = [_reward_row(top[mine[(s, seed, a)]["run_id"]])
-                       for s in converted for a in names if (s, seed, a) in mine]
+        # A SEEDLESS ROUTE RUNS ONCE (drive.plan): this seed's table reuses that run, marked
+        # `seed_applies: False`, unless an older grid ran it for this seed too.
+        reused = set()
+        for (s, sd, a), r in sorted(chosen.items(), key=lambda kv: str(kv[0][1])):
+            if actions_module.seedless(a) and (s, seed, a) not in mine:
+                mine[(s, seed, a)] = r
+                reused.add((s, a))
+        reward_rows = []
+        for s in converted:
+            for a in names:
+                if (s, seed, a) in mine:
+                    row = _reward_row(top[mine[(s, seed, a)]["run_id"]])
+                    if (s, a) in reused:
+                        row.update(seed=seed, seed_applies=False)
+                    reward_rows.append(row)
         counts = {}
         for r in reward_rows:
             counts[r["status"]] = counts.get(r["status"], 0) + 1
@@ -263,6 +276,13 @@ def build(grid, source, scores=None, out=None, allow_mixed_commits=False, action
                       if s.get("outer_fold") is not None and s.get("seed") == seed
                       and s["status"] != "superseded" and s.get("sample") in converted
                       and s.get("action") in names]
+            # The reused seedless runs' nested rewards come with them, relabelled to this seed.
+            nested += [_reward_row(s) | {"outer_fold": s["outer_fold"], "seed": seed,
+                                         "seed_applies": False}
+                       for s in score_rows
+                       if s.get("outer_fold") is not None and s["status"] != "superseded"
+                       and (s.get("sample"), s.get("action")) in reused
+                       and s.get("run_id") == mine[(s.get("sample"), seed, s.get("action"))]["run_id"]]
             (folder / "rewards_nested.jsonl").write_text("".join(json.dumps(r) + "\n" for r in nested))
             table_cfg.update(classifiers=meta.get("classifiers"), outer_folds=meta["outer_folds"])
         (folder / "config.json").write_text(json.dumps(table_cfg, indent=2))

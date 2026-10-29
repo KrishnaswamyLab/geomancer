@@ -18,10 +18,9 @@ without the test fold, so no test label reaches a policy through the rewards it
 fits on. Other tables are split at random into ``folds``.
 
 A cell without a reward (a refused or failed cell, reward None, or a cell with no
-row) is NaN and masked, never imputed: a cell that did not run is not a graph
-that scored 0. Policies fit on observed cells only. A choice whose cell has no
-reward is counted (``unobserved_rate``) and left out of the reward and regret
-means. A table with cells that have no row at all is refused, because the grid
+row) is NaN and masked when policies FIT: a cell that did not run is not a graph
+that scored 0, and no policy learns from it. When a policy is SCORED, choosing such a
+cell costs 0, the worth of no graph, and is counted (``unobserved_rate``). A table with cells that have no row at all is refused, because the grid
 is incomplete (``allow_missing`` masks them). A sample with no observed reward and
 an action with none are left out and listed. summary.json counts the masked cells
 by status, and names by sha256 every table file the numbers rest on.
@@ -199,9 +198,10 @@ POLICIES = {
 def score(choice, predicted, R_test, cfg):
     """Mean reward, regret to the oracle, silent failures, refusals and unobserved choices.
 
-    The best reward of a sample is over its observed cells. A choice whose cell has
-    no reward is counted in ``unobserved_rate`` and left out of the reward and regret
-    means; a refusal counts as reward 0, as before.
+    The best reward of a sample is over its observed cells. A choice whose cell has no
+    reward (the route failed or did not run) scores 0, the worth of no graph, and is also
+    counted in ``unobserved_rate``; fitting never sees it (decided 2026-10-29). It is not a
+    silent failure: a route that gives no graph fails visibly. A refusal scores 0 too.
     """
     best = np.where(np.isfinite(R_test), R_test, -np.inf).max(1)
     refused = (np.zeros(len(choice), bool) if cfg["refuse_below"] is None or predicted is None
@@ -209,12 +209,11 @@ def score(choice, predicted, R_test, cfg):
     got = R_test[np.arange(len(choice)), choice]
     acted = ~refused
     unobserved = acted & ~np.isfinite(got)
-    scored = ~unobserved
-    value = np.where(acted & scored, np.nan_to_num(got), 0.0)
-    silent = acted & scored & (np.nan_to_num(got) <= cfg["silent_low"]) & (best >= cfg["silent_high"])
+    value = np.where(acted & ~unobserved, np.nan_to_num(got), 0.0)
+    silent = acted & ~unobserved & (np.nan_to_num(got) <= cfg["silent_low"]) & (best >= cfg["silent_high"])
 
     def mean(x):
-        return float(x[scored].mean()) if scored.any() else float("nan")
+        return float(x.mean()) if len(x) else float("nan")
 
     metrics = {
         "reward": mean(value),

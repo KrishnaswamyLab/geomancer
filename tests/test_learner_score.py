@@ -391,6 +391,26 @@ def test_a_retried_cell_supersedes_its_failed_row_and_seeds_get_their_own_tables
     assert [r["run_id"] for r in _read(tables[1] / "rewards.jsonl")] == ["seed1"]
 
 
+def test_every_seed_table_reuses_the_one_raw_run_when_its_seed_has_none(tmp_path):
+    root, inputs, manifest = _synthetic_root(tmp_path)
+    grid = tmp_path / "grid"
+    sha = manifest["samples"]["sample_00002"]["npy_sha256"]
+    X = np.load(inputs / "sample_00002.npy")
+    _graph(grid, "raw0", "sample_00002", 0, "raw+paga@default",
+           actions.graph("paga", "default", X, X), sha, sha)
+    _graph(grid, "pca1", "sample_00002", 1, "pca+paga@default", None, sha, None, status="error")
+    score.write(grid, "synthetic", *score.score_synthetic(grid, inputs))
+
+    tables = table.build(grid, "synthetic", actions="raw+paga@default,pca+paga@default",
+                         samples="sample_00002")
+
+    seed1 = {r["action"]: r for r in _read(tables[1] / "rewards.jsonl")}
+    assert seed1["raw+paga@default"]["run_id"] == "raw0"
+    assert seed1["raw+paga@default"]["seed"] == 1
+    assert seed1["raw+paga@default"]["seed_applies"] is False
+    assert json.loads((tables[1] / "config.json").read_text())["missing"] == []
+
+
 def test_table_refuses_rows_from_two_geomancer_commits(tmp_path):
     root, inputs, manifest = _synthetic_root(tmp_path)
     grid = tmp_path / "grid"

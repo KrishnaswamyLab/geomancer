@@ -61,6 +61,15 @@ def _phate(points):
 
 EMBEDDINGS = {"raw": _raw, "pca": _pca, "diffmap": _diffmap, "phate": _phate}
 
+#: Embeddings that do not use the seed. Their routes run once per sample, not once per seed:
+#: the graph extractors are seeded with `SEED`, so a second seed would repeat the same run.
+SEEDLESS = ("raw",)
+
+
+def seedless(name):
+    """Whether an action's result is the same for every seed (its embedding is in `SEEDLESS`)."""
+    return name.split("+")[0] in SEEDLESS
+
 SCALES = {
     "fine": {"knn": 10, "resolution": 2.0, "cubes": 10, "eps_scale": 1.0},
     "default": {"knn": 15, "resolution": 1.0, "cubes": 6, "eps_scale": 1.5},
