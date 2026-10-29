@@ -63,3 +63,12 @@ def test_silent_failure_is_a_bad_choice_when_a_good_one_existed():
 
     assert metrics["silent_failure_rate"] == pytest.approx(0.5)
     assert metrics["regret"] == pytest.approx((0.8 + 0.1) / 2)
+
+
+def test_gain_over_best_fixed_is_paired_by_seed_and_fold(tmp_path):
+    summary = _summary(tmp_path)
+
+    gain = summary["oracle"]["gain_over_best_fixed"]
+    assert gain["mean"] == pytest.approx(0.3)
+    assert gain["wins"] == gain["of"] == 5
+    assert summary["best_fixed"]["gain_over_best_fixed"]["mean"] == 0.0

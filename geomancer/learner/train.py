@@ -140,24 +140,40 @@ def run(table, cfg):
                 if name == "oracle":
                     choice, predicted = R[test].argmax(1), R[test].max(1)
                 else:
-                    choice, predicted = POLICIES[name](X[train], R[train], X[test], cfg,
-                                                       np.random.default_rng([seed, k]))
+                    # NumPy on macOS Accelerate warns spuriously inside matmul; the
+                    # finiteness check below is what guards the result.
+                    with np.errstate(all="ignore"):
+                        choice, predicted = POLICIES[name](X[train], R[train], X[test], cfg,
+                                                           np.random.default_rng([seed, k]))
+                    if predicted is not None and not np.isfinite(predicted).all():
+                        raise FloatingPointError(f"{name}: non-finite predictions, seed {seed} fold {k}")
                 rows.append({"policy": name, "seed": seed, "fold": k,
                              **score(choice, predicted, R[test], cfg)})
     return rows
 
 
-def summarize(rows):
+def summarize(rows, baseline="best_fixed"):
+    """Mean and std over seeds x folds, plus the paired reward gain over `baseline`.
+
+    Every policy sees the same test samples in a given seed and fold, so the
+    gain is taken per (seed, fold) before averaging.
+    """
     grouped = defaultdict(list)
     for row in rows:
         grouped[row["policy"]].append(row)
     keys = [k for k in rows[0] if k not in ("policy", "seed", "fold")]
-    return {
-        policy: {k: {"mean": float(np.mean([r[k] for r in rs if k in r])),
-                     "std": float(np.std([r[k] for r in rs if k in r]))}
-                 for k in keys if any(k in r for r in rs)} | {"n": len(rs)}
-        for policy, rs in grouped.items()
-    }
+    base = {(r["seed"], r["fold"]): r["reward"] for r in grouped.get(baseline, [])}
+    summary = {}
+    for policy, rs in grouped.items():
+        summary[policy] = {k: {"mean": float(np.mean([r[k] for r in rs if k in r])),
+                               "std": float(np.std([r[k] for r in rs if k in r]))}
+                           for k in keys if any(k in r for r in rs)} | {"n": len(rs)}
+        if base:
+            gain = [r["reward"] - base[(r["seed"], r["fold"])] for r in rs]
+            summary[policy][f"gain_over_{baseline}"] = {
+                "mean": float(np.mean(gain)), "std": float(np.std(gain)),
+                "wins": int(sum(g > 0 for g in gain)), "of": len(gain)}
+    return summary
 
 
 def main(argv=None):
@@ -172,7 +188,10 @@ def main(argv=None):
     for policy, m in summary.items():
         print(f"{policy:18s} reward={m['reward']['mean']:.3f}±{m['reward']['std']:.3f} "
               f"regret={m['regret']['mean']:.3f} silent={m['silent_failure_rate']['mean']:.3f} "
-              f"refused={m['refusal_rate']['mean']:.3f}")
+              f"refused={m['refusal_rate']['mean']:.3f}"
+              + (f" gain={m['gain_over_best_fixed']['mean']:+.3f}±{m['gain_over_best_fixed']['std']:.3f}"
+                 f" ({m['gain_over_best_fixed']['wins']}/{m['gain_over_best_fixed']['of']})"
+                 if "gain_over_best_fixed" in m else ""))
     print(f"wrote {out}")
 
 
