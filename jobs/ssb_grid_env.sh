@@ -15,6 +15,10 @@
 # on scratch (the home quota is small) here rather than relying on the login profile.
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-$SCRATCH/.cache/uv}"
+# Never write bytecode into the shared venv or tool envs while jobs run: jobs/ssb_grid_prepare.sh
+# compiles both up front, and concurrent first imports writing __pycache__ on scratch broke
+# imports on the first Mila shard.
+export PYTHONDONTWRITEBYTECODE=1
 : "${GEOMANCER_GIT_SHA:?pass --export=ALL,GEOMANCER_GIT_SHA=<full sha> (the commit jobs/ssb_grid_prepare.sh built)}"
 SRC="$SCRATCH/geomancer-grid-$GEOMANCER_GIT_SHA"
 GRID_ROOT="${GEOMANCER_GRID_ROOT:-$SCRATCH/geomancer/outputs/grid/${GEOMANCER_GIT_SHA:0:12}}"

@@ -41,7 +41,12 @@ cd "$SRC"
 # on scratch (the home quota is small) here rather than relying on the login profile.
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-$SCRATCH/.cache/uv}"
-uv sync --locked --extra learner
+# --compile-bytecode: the jobs never write .pyc into this shared venv (ssb_grid_env.sh sets
+# PYTHONDONTWRITEBYTECODE), so it is compiled once, here. On the first Mila shard, four workers
+# importing a fresh venv at once wrote __pycache__ into it on the scratch filesystem, and one
+# read failed mid-write ("FileNotFoundError: ... networkx/utils/union_find.py"); every later
+# networkx import in that worker then failed with "Algorithm already exists in dispatch namespace".
+uv sync --locked --extra learner --compile-bytecode
 # A tool env lives in ~/.cache/manyruns/tools/<tool>/<lock digest>, shared by every
 # checkout whose lock is the same, and `tools install` refuses to rebuild one that
 # exists. So build only a tool that `tools check` does not report as ready.
@@ -51,6 +56,10 @@ for tool in ssb_graph ssb_state; do
   else
     uv run --no-sync geomancer tools install "$tool"
   fi
+done
+# The tool envs are shared by every job too: compile them once here for the same reason.
+for env in "$HOME"/.cache/manyruns/tools/ssb_graph/*/ "$HOME"/.cache/manyruns/tools/ssb_state/*/; do
+  "$env/bin/python" -m compileall -q -j 0 "$env/lib" >/dev/null && echo "compiled: $env"
 done
 uv run --no-sync geomancer tools check
 uv run --no-sync geomancer tools list
