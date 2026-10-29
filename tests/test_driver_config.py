@@ -22,3 +22,7 @@ def test_every_model_entry_says_who_it_is_and_how_to_reach_it():
     models = yaml.safe_load((DRIVER / "models.yaml").read_text())
     for entry in models["baselines"]:
         assert entry["chooser"].startswith("llm:") and entry["agent"] and entry["model"]
+    expert = models["expert"]
+    assert {"chooser", "agent", "base_url", "model", "model_card"} <= set(expert)
+    assert {"base_model", "training_data", "data_cutoff", "held_out_split",
+            "weights_sha256"} <= set(expert["model_card"])

@@ -10,3 +10,18 @@ baselines:
   - chooser: llm:qwen3:8b
     agent: ollama
     model: qwen3:8b
+
+# The lab's own model, trained on portal traces (see docs/driving-a-run.md). Fill this in when it
+# is served; a run names it as `chooser` on every decision row it touches.
+expert:
+  chooser: null          # e.g. llm:<model-name>@<revision>
+  agent: openai          # any OpenAI-compatible endpoint, e.g. `vllm serve` with tool calling
+  base_url: null
+  model: null
+  model_card:
+    base_model: null
+    base_model_license: null
+    training_data: null  # which portal traces; the consent terms for annotator comments
+    data_cutoff: null
+    held_out_split: null # annotators and datasets never trained on
+    weights_sha256: null
