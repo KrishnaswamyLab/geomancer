@@ -497,7 +497,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "manyruns", git = "https://github.com/latent-reasoning-works/manyruns?tag=v0.1.0" },
+    { name = "manyruns", git = "https://github.com/latent-reasoning-works/manyruns?rev=4d19cf1079e729095e715eb1e29923e52cc19799" },
     { name = "torch", marker = "sys_platform == 'linux'", index = "https://download.pytorch.org/whl/cpu" },
 ]
 
@@ -860,23 +860,16 @@ wheels = [
 
 [[package]]
 name = "manykinds"
-version = "0.1.1"
+version = "0.1.2"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numba", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
-    { name = "numpy", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
-    { name = "sparse", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
-    { name = "xarray", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
-    { name = "zarr", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/74/85/8cd4d08c6a31f9c1c08ce80e78f62950709c52bceaf4d1f40f3fbf92f77d/manykinds-0.1.1.tar.gz", hash = "sha256:154e0f9a3bf008b01a3ba5b161e423d678f493d5cb582532ffe9527c18bb0de5", size = 16458, upload-time = "2026-07-15T19:02:19.001Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/97/04/093ccf5bff1beb186fc80f7fb9ce22e8dbb87e2adf2cf7806ff4880aadbb/manykinds-0.1.2.tar.gz", hash = "sha256:869f0bd0a744979cdcf517103c92903f4a34a2fb0b94901d4239137cdb9e5b61", size = 41745, upload-time = "2026-10-31T07:13:48.137Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b8/e8/f6f1660e6dda86db23fcd4d060680b2f71b9a7bcbd942f9e17ac7a853158/manykinds-0.1.1-py3-none-any.whl", hash = "sha256:5efbb8874b86857dbcee5d06706c73dfdfee3285d0acb5dc68261c151eb20742", size = 15094, upload-time = "2026-07-15T19:02:17.773Z" },
+    { url = "https://files.pythonhosted.org/packages/4d/15/ad961f9d1903feda9752216c474f9e1795f5f839c04e6c811c53c42a1ad5/manykinds-0.1.2-py3-none-any.whl", hash = "sha256:e621d9caa3ed3a711effb6aafc1ac091ad6555a71e763fe1494cb78a1d4f7d76", size = 28224, upload-time = "2026-10-31T07:13:46.592Z" },
 ]
 
 [[package]]
 name = "manylatents"
-version = "0.1.7"
+version = "0.1.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "archetypes", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
@@ -888,6 +881,7 @@ dependencies = [
     { name = "hydra-zen", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "leidenalg", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "lightning", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "manykinds", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "matplotlib", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "multiscale-phate", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "numpy", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
@@ -909,9 +903,9 @@ dependencies = [
     { name = "umap-learn", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "wandb", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/65/24/5c5d7089201e82d631831100b36303995853b6b61669a183ba56f80d02e3/manylatents-0.1.7.tar.gz", hash = "sha256:b3867d345000695719c5a106b78234e801fab1a812f94368a4db80cbc424308d", size = 724995, upload-time = "2026-09-10T18:05:19.276Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/03/3a/1335bd0a911248977a866fcd88e3a9848cd0367e96a5801e7911e2ec5da9/manylatents-0.1.10.tar.gz", hash = "sha256:e08c0e918d3823ae32057c17a659bb0e5281dc43e869b2050d10d79a9c8b923c", size = 814174, upload-time = "2026-10-31T07:52:45.009Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b0/20/e9353100c7764a59bcbc004c558c9a0ed3192f028cc1dc5a6bf646435ab4/manylatents-0.1.7-py3-none-any.whl", hash = "sha256:b6505db7f09b7bf650d38d93bcd096ac41f08fad5d4ab2b6f52dc6cbff6a463a", size = 482095, upload-time = "2026-09-10T18:05:15.521Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/e3/927cb83f5f70f1b22a8044564082ab9dc011e99a7a40b2fd958fc29c6dae/manylatents-0.1.10-py3-none-any.whl", hash = "sha256:fadfa3848b4e536506a2497dddf0ce4a221b6e69099fb3c6936ea583f5d77e3c", size = 550228, upload-time = "2026-10-31T07:52:42.919Z" },
 ]
 
 [[package]]
@@ -944,11 +938,12 @@ singlecell = [
 
 [[package]]
 name = "manyruns"
-version = "0.1.0"
-source = { git = "https://github.com/latent-reasoning-works/manyruns?tag=v0.1.0#79551f04127fdad75aa396eeebcb27351ebd284b" }
+version = "0.1.1"
+source = { git = "https://github.com/latent-reasoning-works/manyruns?rev=4d19cf1079e729095e715eb1e29923e52cc19799#4d19cf1079e729095e715eb1e29923e52cc19799" }
 dependencies = [
     { name = "anndata", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "hydra-core", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
+    { name = "manykinds", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "manylatents", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "manylatents-omics", extra = ["singlecell"], marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },
     { name = "matplotlib", marker = "sys_platform == 'darwin' or sys_platform == 'linux'" },

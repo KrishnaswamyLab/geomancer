@@ -25,7 +25,7 @@ geomancer = "geomancer.app:main"
 dev = ["pytest>=8", "PyYAML>=6"]
 
 [tool.uv.sources]
-manyruns = { git = "https://github.com/latent-reasoning-works/manyruns", tag = "v0.1.0" }
+manyruns = { git = "https://github.com/latent-reasoning-works/manyruns", rev = "4d19cf1079e729095e715eb1e29923e52cc19799" }
 # Make the transitive torch dependency CPU-only on Linux in the lock itself.
 # macOS continues to use PyPI's CPU wheels.
 torch = { index = "pytorch-cpu", marker = "sys_platform == 'linux'" }

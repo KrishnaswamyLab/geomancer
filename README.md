@@ -15,9 +15,11 @@ geomancer run example_blobs --recipe example_pca --engine mock --project example
 ```
 
 The repository must first be created and pushed by its owner. geomancer is never
-published to PyPI. It pins manyruns from Git at `v0.1.0`, commit
-`79551f04127fdad75aa396eeebcb27351ebd284b`. Under this version, `--version` reports
-`geomancer <manyruns version> · revision <manyruns commit>`. A mock run proves
+published to PyPI. It pins manyruns from Git at commit
+`4d19cf1079e729095e715eb1e29923e52cc19799` on manyruns `main`. Under this version,
+`--version` reports `geomancer <geomancer version> · built on manyruns <manyruns version>
+· revision <manyruns commit>`, and each run record carries
+`"caller": {"name": "geomancer", "version": <geomancer version>}`. A mock run proves
 CLI and record plumbing only; its numbers are not scientific results.
 
 ## What this lab adds
