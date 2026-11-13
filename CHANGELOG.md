@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Pin manyruns to `main` commit `4d19cf1` instead of `v0.1.0`. It brings the
+  caller provenance that the tests already expected: the `caller` field on run
+  records and the "built on manyruns" `--version` line. It also brings the tune
+  surface rule: a `left` or `right` step that does not change the value is
+  `null`, so a knob at `t="auto"` offers `left: null, right: 20`.
+
 ## 0.1.0 — G-1 skeleton
 
 - The Krishnaswamy Lab's public configuration layer, built on manyruns by
